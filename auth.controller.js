@@ -17,25 +17,25 @@ async function register(request, reply) {
         const user = await User.create({
             email,
             password,
-            firstname,
-            lastname,
-            id,
+            firstName: firstname,
+            lastName: lastname,
+            studentID: id,
             role
         });
         
        
         const token = jwt.sign(
-            { userId: user._id, role: user.role },
+            { userId: user.studentID, role: user.role },
             JWT_SECRET,
             { expiresIn: '7d' }
         );
         
         reply.send({
             user: {
-                id: user._id,
+                id: user.studentID,
                 email: user.email,
-                firstname: user.firstname,
-                lastname: user.lastname,
+                firstname: user.firstName,
+                lastname: user.lastName,
                 role: user.role
             },
             token
@@ -44,3 +44,4 @@ async function register(request, reply) {
         reply.status(500).send({ error: error.message });
     }
 }
+
