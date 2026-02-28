@@ -7,13 +7,13 @@ async function register(request, reply) {
     try {
         const { email, password, name, role } = request.body;
         
-        // Check if user exists
+      
         const existingUser = await User.findOne({ email });
         if (existingUser) {
             return reply.status(400).send({ error: 'Email already exists' });
         }
         
-        // Create new user (password hashed automatically by pre-save hook)
+        
         const user = await User.create({
             email,
             password,
@@ -22,7 +22,7 @@ async function register(request, reply) {
             role
         });
         
-        // Generate JWT
+      
         const token = jwt.sign(
             { userId: user._id, role: user.role },
             JWT_SECRET,
