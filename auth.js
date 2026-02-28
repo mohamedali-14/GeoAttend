@@ -15,17 +15,17 @@ router.post("/login", async (req, res) => {
         if (!isMatch) return res.status(400).json({ error: "Invalid credentials" });
 
         const token = jwt.sign(
-            { userId: user._id, role: user.role },
+            { userId: user.studentID, role: user.role },
             JWT_SECRET,
             { expiresIn: "7d" }
         );
 
         res.json({ 
             user: { 
-                id: user._id, 
+                studentID: user.studentID, 
                 email: user.email, 
-                firstname: user.firstname, 
-                lastname: user.lastname,
+                firstname: user.firstName, 
+                lastname: user.lastName ,
                 role: user.role 
             }, 
             token 
@@ -36,3 +36,4 @@ router.post("/login", async (req, res) => {
 });
 
 module.exports = router;
+
