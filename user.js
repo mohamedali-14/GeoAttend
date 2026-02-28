@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
-const { type } = require('os');
-const { code } = require('statuses');
+
 
 const userSchema = new mongoose.Schema({
     email: {
@@ -14,11 +13,11 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    firstname: {
+    firstName: {
         type: String,
         required: true
     },
-     lastname: {
+     lastName: {
         type: String,
         required: true
     },
@@ -27,10 +26,11 @@ const userSchema = new mongoose.Schema({
         enum: ['DOCTOR', 'STUDENT'],
         required: true
     },
-    id:{
-        type: Number,
-        required:true, 
-        unique: true
+  
+    studentID:{
+        type: String,
+        unique: true,
+        sparse: true
     }
 }, {
     timestamps: true
@@ -48,4 +48,15 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
     return await bcrypt.compare(candidatePassword, this.password);
 };
 
+userSchema.methods.toSafeObject = function() {
+    return {
+        email: this.email,
+        firstName: this.firstName,
+        lastName: this.lastName,
+        role: this.role,
+        studentID: this.studentID
+    };
+}
+
 module.exports = mongoose.model('User', userSchema);
+
