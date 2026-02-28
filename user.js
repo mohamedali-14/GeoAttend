@@ -27,7 +27,7 @@ const userSchema = new mongoose.Schema({
         enum: ['DOCTOR', 'STUDENT'],
         required: true
     },
-    code:{
+    id:{
         type: Number,
         required:true, 
         unique: true
