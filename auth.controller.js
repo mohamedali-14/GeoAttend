@@ -5,7 +5,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 async function register(request, reply) {
     try {
-        const { email, password, name, role } = request.body;
+        const { email, password, firstname, lastname, id, role } = request.body;
         
         
         const existingUser = await User.findOne({ email });
@@ -17,8 +17,9 @@ async function register(request, reply) {
         const user = await User.create({
             email,
             password,
-            name,
-            code,
+            firstname,
+            lastname,
+            id,
             role
         });
         
@@ -33,7 +34,8 @@ async function register(request, reply) {
             user: {
                 id: user._id,
                 email: user.email,
-                name: user.name,
+                firstname: user.firstname,
+                lastname: user.lastname,
                 role: user.role
             },
             token
