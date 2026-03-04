@@ -105,7 +105,7 @@ export default function ProfileScreen() {
             </ScrollView>
 
             <View style={styles.bottomNav}>
-                <TouchableOpacity style={styles.navItem}>
+                <TouchableOpacity style={styles.navItem} onPress={() => router.push('./HomeScreen')}>
                     <Icon name="home" size={24} color={Colors.textMuted} />
                     <Text style={styles.navText}>Home</Text>
                 </TouchableOpacity>

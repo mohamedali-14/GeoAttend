@@ -13,9 +13,9 @@ import {
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../context/AuthContext";
-import { PasswordInput } from "@/components/PasswordInput";
-import { CustomButton } from "@/components/CustomButton";
-import { InputField } from "@/components/InputField";
+import { PasswordInput } from "../components/PasswordInput";
+import { CustomButton } from "../components/CustomButton";
+import { InputField } from "../components/InputField";
 import Colors from "../constants/Colors";
 
 export default function LoginScreen() {
@@ -28,18 +28,23 @@ export default function LoginScreen() {
     const [password, setPassword] = useState("");
 
     const handleLogin = async () => {
-        if (!email || !password) {
-            Alert.alert("Error", "Please fill all fields");
-            return;
-        }
+    if (!email || !password) {
+        Alert.alert("Error", "Please fill all fields");
+        return;
+    }
 
-        try {
-            await login(email, password, role as string);
-            router.replace('/ProfileScreen');
-        } catch (error: any) {
-            Alert.alert("Login Failed", error.message);
+    try {
+        await login(email, password, role as string);
+        // التوجيه بناءً على الدور المختار
+        if (role === 'student') {
+            router.replace('/HomeScreen');
+        } else {
+            router.replace('/ProfileScreen'); // للدكتور أو admin
         }
-    };
+   } catch (error: any) {
+        Alert.alert("Login Failed", error.message);
+     }
+ };
 
     return (
         <SafeAreaView style={styles.container}>

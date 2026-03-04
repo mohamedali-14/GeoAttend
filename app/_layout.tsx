@@ -8,6 +8,7 @@ export default function RootLayout() {
         <Stack.Screen name="RoleSelectionScreen" />
         <Stack.Screen name="LoginScreen" />
         <Stack.Screen name="RegisterScreen" />
+        <Stack.Screen name="HomeScreen" />        {/* الجديد */}
         <Stack.Screen name="ProfileScreen" />
       </Stack>
     </AuthProvider>
