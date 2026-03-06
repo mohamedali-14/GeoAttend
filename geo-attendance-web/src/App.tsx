@@ -3,15 +3,9 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import StudentDashboard from "./pages/StudentDashboard";
+import DoctorDashboard from "./pages/DoctorDashboard"; // أضف هذا السطر
 
 
-function DoctorDashboard() {
-  return (
-    <div className="flex h-screen items-center justify-center bg-[#0B1120] text-2xl font-bold text-[#00D084]">
-      👨‍🏫 Welcome to Doctor Dashboard!
-    </div>
-  );
-}
 
 // أضفنا صفحة الإدمن الجديدة هنا
 function AdminDashboard() {
