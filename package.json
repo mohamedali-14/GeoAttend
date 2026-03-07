@@ -1,0 +1,23 @@
+{
+  "name": "geo-attendance",
+  "version": "1.0.0",
+  "description": "It is a program that take the attendance by location",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mohamedali-14/GeoAttend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mohamedali-14/GeoAttend/issues"
+  },
+  "homepage": "https://github.com/mohamedali-14/GeoAttend#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
