@@ -1,14 +1,22 @@
 const express = require("express");
+
+const {
+
+createCourse,
+getCourses,
+updateCourse,
+deleteCourse
+
+} = require("./course.controller");
+
 const router = express.Router();
 
-const { createCourse } = require("./course.controller");
-const { authenticateUser, requireRole } = require("../../middleware/auth.middleware");
+router.post("/",createCourse);
 
-router.post(
-    "/",
-    authenticateUser,
-    requireRole("ADMIN"),
-    createCourse
-);
+router.get("/",getCourses);
+
+router.put("/:courseId",updateCourse);
+
+router.delete("/:courseId",deleteCourse);
 
 module.exports = router;

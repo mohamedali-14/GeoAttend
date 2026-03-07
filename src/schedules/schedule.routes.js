@@ -1,20 +1,16 @@
 const express = require("express");
+
+const {
+
+createSchedule,
+getSchedules
+
+} = require("./schedule.controller");
+
 const router = express.Router();
 
-const { createSchedule, getSchedules } = require("./schedule.controller");
-const { authenticateUser, requireRole } = require("../../middleware/auth.middleware");
+router.post("/",createSchedule);
 
-router.post(
-    "/",
-    authenticateUser,
-    requireRole("ADMIN"),
-    createSchedule
-);
-
-router.get(
-    "/",
-    authenticateUser,
-    getSchedules
-);
+router.get("/",getSchedules);
 
 module.exports = router;
