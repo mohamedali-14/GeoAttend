@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Calendar, MapPin, User } from 'lucide-react';
+import { Calendar, MapPin, User, CheckCircle } from 'lucide-react';
 
 //  Data
 interface Lecture {
@@ -12,6 +12,7 @@ interface Lecture {
 
 interface LectureCardProps {
   lecture: Lecture;
+  hasAttended?: boolean; // الخاصية الجديدة
 }
 
 // colors
@@ -22,7 +23,7 @@ const statusColors = {
   CANCELLED: 'bg-red-500/20 text-red-400 border-red-500/30',
 };
 
-export function LectureCard({ lecture }: LectureCardProps) {
+export function LectureCard({ lecture, hasAttended }: LectureCardProps) {
   const navigate = useNavigate();
   
   // التحقق من حالة المحاضرة
@@ -55,29 +56,36 @@ export function LectureCard({ lecture }: LectureCardProps) {
       </div>
 
       {/* الجزء السفلي: زر التفاعل */}
-      <button 
-        disabled={!isJoinable}
-        onClick={() => isActive && navigate(`/join/${lecture._id}`)}
-        className={`w-full py-2.5 rounded-lg font-semibold transition-colors border flex items-center justify-center gap-2
-          ${isActive 
-            ? 'bg-[#00D084] hover:bg-[#00B070] text-gray-900 border-transparent shadow-[0_0_15px_rgba(0,208,132,0.3)]' 
-            : isJoinable 
-              ? 'bg-[#1E293B] hover:bg-slate-700 text-white border-slate-700'
-              : 'bg-[#1E293B]/30 text-slate-600 border-transparent cursor-not-allowed'
-          }
-        `}
-      >
-        {isActive ? (
-          <>
-            <MapPin className="w-4 h-4" />
-            Join Now
-          </>
-        ) : isJoinable ? (
-          'View Details'
-        ) : (
-          'Not Available'
-        )}
-      </button>
+      {hasAttended ? (
+        <button disabled className="w-full py-2.5 rounded-lg font-semibold transition-colors border flex items-center justify-center gap-2 bg-[#00D084]/10 text-[#00D084] border-[#00D084]/30 cursor-not-allowed">
+          <CheckCircle className="w-5 h-5" />
+          Attended
+        </button>
+      ) : (
+        <button 
+          disabled={!isJoinable}
+          onClick={() => isActive && navigate(`/join/${lecture._id}`)}
+          className={`w-full py-2.5 rounded-lg font-semibold transition-colors border flex items-center justify-center gap-2
+            ${isActive 
+              ? 'bg-[#00D084] hover:bg-[#00B070] text-gray-900 border-transparent shadow-[0_0_15px_rgba(0,208,132,0.3)]' 
+              : isJoinable 
+                ? 'bg-[#1E293B] hover:bg-slate-700 text-white border-slate-700'
+                : 'bg-[#1E293B]/30 text-slate-600 border-transparent cursor-not-allowed'
+            }
+          `}
+        >
+          {isActive ? (
+            <>
+              <MapPin className="w-4 h-4" />
+              Join Now
+            </>
+          ) : isJoinable ? (
+            'View Details'
+          ) : (
+            'Not Available'
+          )}
+        </button>
+      )}
 
     </div>
   );
