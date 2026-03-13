@@ -1,27 +1,23 @@
 const admin = require("firebase-admin");
 
+// Set emulator environment variables for local development
+if (process.env.NODE_ENV !== 'production') {
+  process.env.FIRESTORE_EMULATOR_HOST = 'localhost:8080';
+  process.env.FIREBASE_STORAGE_EMULATOR_HOST = 'localhost:9199';
+  process.env.FIREBASE_AUTH_EMULATOR_HOST = 'localhost:9099';
+}
+
 if (!admin.apps.length) {
-
   admin.initializeApp({
-
-    credential: admin.credential.cert({
-      projectId: "geoattend-14",
-      clientEmail: "firebase-adminsdk-fbsvc@geoattend-14.iam.gserviceaccount.com",
-      privateKey: process.env.FIREBASE_PRIVATE_KEY
-        ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
-        : undefined,
-    }),
-
+    projectId: 'geoattend-14', // Make sure this matches your project ID
+    // For local emulators, no credentials needed
+    credential: admin.credential.applicationDefault()
   });
-
 }
 
 const db = admin.firestore();
-
 const auth = admin.auth();
-
 const storage = admin.storage();
-
 const messaging = admin.messaging();
 
 module.exports = {
@@ -29,5 +25,5 @@ module.exports = {
   db,
   auth,
   storage,
-  messaging,
+  messaging
 };
