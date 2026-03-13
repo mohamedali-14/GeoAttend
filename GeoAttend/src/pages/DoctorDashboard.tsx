@@ -9,11 +9,13 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { useMockData, type Lecture, type Course, type Schedule } from "../context/MockDataContext";
 import ProfileSettingsModal from "./ProfileSettingsModal";
+
+// حل مشكلة مكتبة الـ QR Code مع Vite
 import QRCodeModule from "react-qr-code";
 const QRCodeComponent = (QRCodeModule as any).default || QRCodeModule;
 
 // ─────────────────────────────────────────────
-//  Original Add Lecture Modal (kept exactly as original)
+//  Add Lecture Modal
 // ─────────────────────────────────────────────
 function AddLectureModal({ onClose, onAdd }: { onClose: () => void; onAdd: (l: Omit<Lecture,"id">) => void }) {
   const { user } = useAuth();
@@ -58,7 +60,6 @@ function AddLectureModal({ onClose, onAdd }: { onClose: () => void; onAdd: (l: O
                 className="w-full bg-[#1E293B] border border-slate-700 text-white p-3 rounded-lg focus:outline-none focus:border-blue-500 transition-all" required />
             </div>
           ))}
-          {/* Link to course (optional) */}
           {myCourses.length > 0 && (
             <div>
               <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Link to Course (optional)</label>
@@ -98,10 +99,12 @@ function CourseModal({ course, onSave, onClose }: {
   const [err, setErr] = useState("");
   const inp = "w-full bg-[#1E293B] border border-slate-700 text-white p-3 rounded-lg focus:outline-none focus:border-blue-500 transition-all placeholder:text-slate-500 text-sm";
   const lbl = "block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5";
+  
   const submit = () => {
     if (!form.name.trim() || !form.code.trim()) return setErr("Name and Code are required.");
     setErr(""); onSave(form);
   };
+
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-[#111827] border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl">
@@ -164,10 +167,12 @@ function ScheduleModal({ schedule, defaultDay, myCourses, onSave, onClose }: {
   const [err, setErr] = useState("");
   const inp = "w-full bg-[#1E293B] border border-slate-700 text-white p-3 rounded-lg focus:outline-none focus:border-blue-500 transition-all placeholder:text-slate-500 text-sm";
   const lbl = "block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5";
+  
   const submit = () => {
     if (!form.courseId || !form.startTime || !form.endTime) return setErr("Course, Start and End time are required.");
     onSave(form);
   };
+
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-[#111827] border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl">
@@ -222,20 +227,26 @@ function ScheduleModal({ schedule, defaultDay, myCourses, onSave, onClose }: {
 }
 
 // ─────────────────────────────────────────────
-//  Students in Lecture Modal
+//  Students in Lecture Modal (المحدثة لعرض كل من سجل حضور)
 // ─────────────────────────────────────────────
 function LectureStudentsModal({ lecture, onClose }: { lecture: Lecture; onClose: () => void }) {
   const { courses, users, enrollments, attendance, markAttendance, unmarkAttendance } = useMockData();
   const [search, setSearch] = useState("");
   const course = lecture.courseId ? courses.find(c => c.id === lecture.courseId) : null;
-  const enrolledStudents = course
-    ? enrollments.filter(e => e.courseId === course.id).map(e => users.find(u => u.id === e.studentId)).filter(Boolean)
-    : [];
+  
+  // دمج الطلاب المسجلين مع الطلاب اللي عملوا Scan فعلياً
+  const enrolledIds = course ? enrollments.filter(e => e.courseId === course.id).map(e => e.studentId) : [];
+  const attendedIds = attendance.filter(a => a.lectureId === lecture.id).map(a => a.studentId);
+  const allStudentIds = Array.from(new Set([...enrolledIds, ...attendedIds])); // منع التكرار
+  const allStudents = allStudentIds.map(id => users.find(u => u.id === id)).filter(Boolean);
+
   const isPresent = (sid: string) => attendance.some(a => a.lectureId === lecture.id && a.studentId === sid);
-  const filtered = enrolledStudents.filter(s =>
+  
+  const filtered = allStudents.filter(s =>
     `${s!.firstName} ${s!.lastName} ${s!.studentID||""}`.toLowerCase().includes(search.toLowerCase())
   );
-  const presentCount = enrolledStudents.filter(s => isPresent(s!.id)).length;
+  const presentCount = allStudents.filter(s => isPresent(s!.id)).length;
+
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-[#111827] border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh]">
@@ -248,11 +259,11 @@ function LectureStudentsModal({ lecture, onClose }: { lecture: Lecture; onClose:
         </div>
         <div className="flex gap-4 px-6 py-4 border-b border-slate-800">
           {[
-            { label: "Enrolled", value: enrolledStudents.length, color: "text-white",     bg: "bg-slate-800/50" },
-            { label: "Present",  value: presentCount,            color: "text-[#00D084]", bg: "bg-[#00D084]/10 border border-[#00D084]/20" },
-            { label: "Absent",   value: enrolledStudents.length - presentCount, color: "text-red-400", bg: "bg-red-500/10 border border-red-500/20" },
+            { label: "Total Students", value: allStudents.length, color: "text-white", bg: "bg-slate-800/50" },
+            { label: "Present",  value: presentCount, color: "text-[#00D084]", bg: "bg-[#00D084]/10 border border-[#00D084]/20" },
+            { label: "Absent",   value: allStudents.length - presentCount, color: "text-red-400", bg: "bg-red-500/10 border border-red-500/20" },
           ].map(s => (
-            <div key={s.label} className={`${s.bg} rounded-lg px-4 py-2 text-center`}>
+            <div key={s.label} className={`${s.bg} rounded-lg px-4 py-2 text-center flex-1`}>
               <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
               <p className="text-slate-400 text-xs">{s.label}</p>
             </div>
@@ -266,10 +277,8 @@ function LectureStudentsModal({ lecture, onClose }: { lecture: Lecture; onClose:
           </div>
         </div>
         <div className="overflow-y-auto flex-1 p-4 flex flex-col gap-2">
-          {!course ? (
-            <p className="text-slate-500 text-center py-8">Not linked to a course — no student list available.</p>
-          ) : filtered.length === 0 ? (
-            <p className="text-slate-500 text-center py-8">No students found</p>
+          {filtered.length === 0 ? (
+            <p className="text-slate-500 text-center py-8">No students found.</p>
           ) : filtered.map(s => {
             const present = isPresent(s!.id);
             return (
@@ -284,8 +293,9 @@ function LectureStudentsModal({ lecture, onClose }: { lecture: Lecture; onClose:
                 <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${present ? "bg-[#00D084]/20 text-[#00D084] border-[#00D084]/30" : "bg-red-500/10 text-red-400 border-red-500/20"}`}>
                   {present ? "Present" : "Absent"}
                 </span>
+                {/* زر إضافة/حذف الحضور يدوياً للدكتور */}
                 {lecture.status === "ACTIVE" && (
-                  <button onClick={() => present ? unmarkAttendance(lecture.id, s!.id) : markAttendance(lecture.id, s!.id, course.id)}
+                  <button onClick={() => present ? unmarkAttendance(lecture.id, s!.id) : markAttendance(lecture.id, s!.id, course?.id || "")}
                     className={`p-2 rounded-lg transition-colors ${present ? "text-red-400 hover:bg-red-500/10" : "text-[#00D084] hover:bg-[#00D084]/10"}`}>
                     {present ? <UserMinus className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
                   </button>
@@ -324,7 +334,6 @@ export default function DoctorDashboard() {
   const [showSettings,   setShowSettings]   = useState(false);
   const [viewLecture,    setViewLecture]    = useState<Lecture | null>(null);
   
-  // ⬅️ المتغير الجديد الخاص بنافذة الـ QR
   const [activeQrLecture, setActiveQrLecture] = useState<string | null>(null);
 
   const myLectures  = lectures.filter(l => l.doctorId === user?.id);
@@ -354,7 +363,6 @@ export default function DoctorDashboard() {
       {viewLecture     && <LectureStudentsModal lecture={viewLecture} onClose={() => setViewLecture(null)} />}
       
       {/* ════════════ QR CODE MODAL ════════════ */}
-      {/* ⬅️ النافذة الخاصة بالـ QR */}
       {activeQrLecture && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#111827] border border-slate-800 rounded-2xl p-8 max-w-sm w-full flex flex-col items-center relative shadow-2xl animate-in zoom-in duration-200">
@@ -526,29 +534,20 @@ export default function DoctorDashboard() {
                           </div>
                         )}
                         <div className="flex gap-2">
-                          {/* Students button */}
-                          {l.courseId && (
-                            <button onClick={() => setViewLecture(l)}
-                              className="px-3 py-2.5 bg-slate-800 hover:bg-blue-500/10 hover:text-blue-400 text-slate-300 border border-slate-700 hover:border-blue-500/30 rounded-lg transition-all flex items-center gap-1.5 text-sm">
-                              <Users className="w-4 h-4" />
-                            </button>
-                          )}
+                          <button onClick={() => setViewLecture(l)}
+                            className="px-3 py-2.5 bg-slate-800 hover:bg-blue-500/10 hover:text-blue-400 text-slate-300 border border-slate-700 hover:border-blue-500/30 rounded-lg transition-all flex items-center gap-1.5 text-sm">
+                            <Users className="w-4 h-4" />
+                          </button>
                           {l.status === "ACTIVE" ? (
                             <button onClick={() => updateLecture(l.id, { status: "COMPLETED" })}
                               className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 font-semibold py-2.5 rounded-lg transition-colors">
                               Stop Attendance
                             </button>
                           ) : l.status === "SCHEDULED" ? (
-                            
-                            /* ⬅️ الزر بعد تعديله ليفتح المحاضرة ويُظهر الـ QR */
-                            <button onClick={() => {
-                                updateLecture(l.id, { status: "ACTIVE" });
-                                setActiveQrLecture(l.id);
-                              }}
+                            <button onClick={() => { updateLecture(l.id, { status: "ACTIVE" }); setActiveQrLecture(l.id); }}
                               className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
                               <PlayCircle className="w-4 h-4" />Start Lecture & QR
                             </button>
-                            
                           ) : (
                             <button className="flex-1 bg-[#1E293B] hover:bg-slate-700 text-white font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2">
                               <CheckCircle className="w-4 h-4" />View Report
