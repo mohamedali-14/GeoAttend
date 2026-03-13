@@ -108,7 +108,7 @@ export default function StudentDashboard() {
       <main className="flex-1 overflow-y-auto p-6 md:p-10">
         <div className="max-w-5xl mx-auto">
 
-          {/* ════════════ MY LECTURES (ORIGINAL) ════════════ */}
+          {/* ════════════ MY LECTURES ════════════ */}
           {tab === "lectures" && (
             <>
               <div className="flex items-center justify-between mb-10 border-b border-slate-800 pb-6">
@@ -144,7 +144,11 @@ export default function StudentDashboard() {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {lectures.map(l => (
-                  <LectureCard key={l.id} lecture={{ _id: l.id, title: l.title, doctor: { name: l.doctorName }, scheduledAt: l.scheduledAt, status: l.status }} />
+                  <LectureCard 
+                    key={l.id} 
+                    lecture={{ _id: l.id, title: l.title, doctor: { name: l.doctorName }, scheduledAt: l.scheduledAt, status: l.status }} 
+                    hasAttended={attendance.some(a => a.lectureId === l.id && a.studentId === user?.id)} 
+                  />
                 ))}
               </div>
             </>
@@ -167,7 +171,11 @@ export default function StudentDashboard() {
                   </h2>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-2">
                     {lectures.filter(l => l.status === "ACTIVE").map(l => (
-                      <LectureCard key={l.id} lecture={{ _id: l.id, title: l.title, doctor: { name: l.doctorName }, scheduledAt: l.scheduledAt, status: l.status }} />
+                      <LectureCard 
+                        key={l.id} 
+                        lecture={{ _id: l.id, title: l.title, doctor: { name: l.doctorName }, scheduledAt: l.scheduledAt, status: l.status }} 
+                        hasAttended={attendance.some(a => a.lectureId === l.id && a.studentId === user?.id)}
+                      />
                     ))}
                   </div>
                 </div>
