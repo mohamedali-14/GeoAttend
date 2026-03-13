@@ -1,4 +1,4 @@
-const { db, admin } = require("../../config/firebase");
+const { db, admin } = require("../config/firebase");
 
 // CREATE a new schedule
 async function createSchedule(req, res) {

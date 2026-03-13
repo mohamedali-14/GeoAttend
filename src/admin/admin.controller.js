@@ -1,4 +1,4 @@
-const { db } = require("../../config/firebase");
+const { db } = require("../config/firebase");
 
 // GET all users with optional role filter and pagination
 async function getAllUsers(req, res) {
