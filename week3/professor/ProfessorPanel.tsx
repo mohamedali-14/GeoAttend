@@ -15,6 +15,7 @@ import ProfessorCoursesScreen    from './ProfessorCoursesScreen';
 import ProfessorSessionsScreen   from './ProfessorSessionsScreen';
 import ProfessorAttendanceScreen from './ProfessorAttendanceScreen';
 import ProfessorMaterialsScreen from './ProfessorMaterialsScreen';
+import LectureDetailScreen from './LectureDetailScreen';
 import ProfessorScheduleScreen   from './ProfessorScheduleScreen';
 import { createSession, endSession, fetchActiveSessions, fetchDashboardStats, fetchProfessorCourses } from './professorService';
 
@@ -69,11 +70,15 @@ export default function ProfessorDashboard() {
     const [radiusMeters, setRadiusMeters]     = useState('50');
     const [fetchingLocation, setFetchingLocation] = useState(false);
 
-    const [showAttendanceModal, setShowAttendanceModal] = useState(false);
-    const [selectedSession, setSelectedSession]         = useState<LectureSession|null>(null);
-
     const [showMaterials, setShowMaterials]       = useState(false);
     const [materialsSession, setMaterialsSession] = useState<LectureSession|null>(null);
+
+    const [showLectureDetail, setShowLectureDetail] = useState(false);
+    const [detailSession, setDetailSession]         = useState<LectureSession|null>(null);
+
+    const [formErrors, setFormErrors] = useState<{
+        course?: string; startTime?: string; endTime?: string; room?: string;
+    }>({});
 
     const headerOpacity = useRef(new Animated.Value(0)).current;
     useEffect(() => {
@@ -96,6 +101,12 @@ export default function ProfessorDashboard() {
 
             setActiveSessions(sessions);
             setStats(dashStats);
+
+            setMaterialsSession(prev => {
+                if (!prev) return null;
+                const updated = sessions.find(s => s.id === prev.id);
+                return updated ?? prev;
+            });
         } catch (e) {
             console.error('fetchData error:', e);
             Alert.alert('Error', 'Failed to load data. Please try again.');
@@ -105,8 +116,25 @@ export default function ProfessorDashboard() {
     };
 
     const handleCreateSession = async () => {
-        if (!selectedCourse) { Alert.alert('Error', 'Please select a course'); return; }
-        if (!sessionStartTime || !sessionEndTime) { Alert.alert('Error', 'Please enter times'); return; }
+        const errs: typeof formErrors = {};
+        if (!selectedCourse)    errs.course    = 'اختر المادة أولاً';
+        if (!sessionStartTime)  errs.startTime = 'أدخل وقت البداية';
+        if (!sessionEndTime)    errs.endTime   = 'أدخل وقت النهاية';
+        if (!sessionRoom.trim()) errs.room     = 'أدخل رقم القاعة';
+
+        const timeRegex = /^\d{1,2}:\d{2}\s*(AM|PM|am|pm)?$/;
+        if (sessionStartTime && !timeRegex.test(sessionStartTime.trim())) {
+            errs.startTime = 'صيغة غير صحيحة — مثال: 10:00 AM';
+        }
+        if (sessionEndTime && !timeRegex.test(sessionEndTime.trim())) {
+            errs.endTime = 'صيغة غير صحيحة — مثال: 11:30 AM';
+        }
+
+        if (Object.keys(errs).length > 0) {
+            setFormErrors(errs);
+            return;
+        }
+        setFormErrors({});
 
         let centerLat: number | undefined;
         let centerLng: number | undefined;
@@ -128,7 +156,7 @@ export default function ProfessorDashboard() {
             await createSession({
                 professorId: user!.uid,
                 professorName: userData?.fullName || '',
-                course: selectedCourse,
+                course: selectedCourse!,
                 startTime: sessionStartTime,
                 endTime: sessionEndTime,
                 room: sessionRoom,
@@ -137,7 +165,7 @@ export default function ProfessorDashboard() {
                 centerLng,
                 radiusMeters: parseInt(radiusMeters) || 50,
             });
-            Alert.alert('✅ Success', `Session for ${selectedCourse.name} started!`);
+            Alert.alert('✅ Success', `Session for ${selectedCourse!.name} started!`);
             setShowNewSession(false);
             setSelectedCourse(null);
             setSessionStartTime('');
@@ -211,7 +239,7 @@ export default function ProfessorDashboard() {
                             <View style={styles.liveStats}>
                                 <View style={styles.liveStatItem}>
                                     <Icon name="people" size={16} color={colors.text.muted} />
-                                    <Text style={styles.liveStatText}>{s.attendeeCount}/{s.totalStudents} present</Text>
+                                    <Text style={styles.liveStatText}>{s.attendeeCount} present</Text>
                                 </View>
                                 <View style={styles.liveStatItem}>
                                     <Icon name="room" size={16} color={colors.text.muted} />
@@ -226,9 +254,9 @@ export default function ProfessorDashboard() {
                             </View>
                             <View style={styles.liveActions}>
                                 <TouchableOpacity style={styles.liveViewBtn}
-                                    onPress={() => { setSelectedSession(s); setShowAttendanceModal(true); }}>
-                                    <Icon name="visibility" size={16} color={colors.primary} />
-                                    <Text style={styles.liveViewText}>Attendance</Text>
+                                    onPress={() => { setDetailSession(s); setShowLectureDetail(true); }}>
+                                    <Icon name="info" size={16} color="#3B82F6" />
+                                    <Text style={[styles.liveViewText, { color: '#3B82F6' }]}>تفاصيل</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity style={[styles.liveViewBtn, { borderColor: '#8B5CF6' }]}
                                     onPress={() => {
@@ -236,7 +264,7 @@ export default function ProfessorDashboard() {
                                         setShowMaterials(true);
                                     }}>
                                     <Icon name="auto-awesome" size={16} color="#8B5CF6" />
-                                    <Text style={[styles.liveViewText, { color: '#8B5CF6' }]}>PDF · QR · Quiz</Text>
+                                    <Text style={[styles.liveViewText, { color: '#8B5CF6' }]}>PDF / Quiz</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity style={styles.liveEndBtn} onPress={() => handleEndSession(s.id)}>
                                     <Icon name="stop" size={16} color="#EF4444" />
@@ -330,7 +358,7 @@ export default function ProfessorDashboard() {
 
             <ProfessorSessionsScreen
                 visible={showNewSession}
-                onClose={() => setShowNewSession(false)}
+                onClose={() => { setShowNewSession(false); setFormErrors({}); }}
                 courses={courses}
                 selectedCourse={selectedCourse}
                 onSelectCourse={setSelectedCourse}
@@ -342,6 +370,7 @@ export default function ProfessorDashboard() {
                 onChangeRoom={setSessionRoom}
                 creatingSession={creatingSession || fetchingLocation}
                 onCreateSession={handleCreateSession}
+                errors={formErrors}
                 geoEnabled={geoEnabled}
                 onToggleGeo={setGeoEnabled}
                 radiusMeters={radiusMeters}
@@ -349,13 +378,29 @@ export default function ProfessorDashboard() {
                 fetchingLocation={fetchingLocation}
             />
 
-            {(materialsSession || activeSessions.length > 0) && (
+            {materialsSession && (
                 <ProfessorMaterialsScreen
                     visible={showMaterials}
-                    onClose={() => setShowMaterials(false)}
-                    session={(materialsSession ?? activeSessions[0])!}
+                    onClose={() => {
+                        setShowMaterials(false);
+                        setTimeout(() => setMaterialsSession(null), 350);
+                    }}
+                    session={materialsSession}
                     professorName={userData?.fullName || ''}
-                    onSessionUpdated={fetchData}
+                    onSessionUpdated={(updates) => {
+                        if (updates) {
+                            setMaterialsSession(prev => prev ? { ...prev, ...updates } : prev);
+                            setActiveSessions(prev => prev.map(s => s.id === materialsSession.id ? { ...s, ...updates } : s));
+                        }
+                    }}
+                />
+            )}
+
+            {detailSession && (
+                <LectureDetailScreen
+                    visible={showLectureDetail}
+                    onClose={() => setShowLectureDetail(false)}
+                    session={detailSession}
                 />
             )}
 

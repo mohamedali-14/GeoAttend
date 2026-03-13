@@ -5,11 +5,9 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
 import { colors } from '@/const/colors';
 import { db } from '@/firebaseConfig';
 import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { LectureSession, QuizQuestion } from './types';
 
 const QRDisplay = ({ value }: { value: string }) => (
@@ -64,51 +62,83 @@ interface Props {
     onClose: () => void;
     session: LectureSession;
     professorName: string;
-    onSessionUpdated: () => void;
+    onSessionUpdated: (updates?: any) => void;
 }
 
 type Tab = 'pdf' | 'qr' | 'quiz';
 
 export default function ProfessorMaterialsScreen({ visible, onClose, session, professorName, onSessionUpdated }: Props) {
-    const [activeTab, setActiveTab]         = useState<Tab>('pdf');
-    const [uploadingPDF, setUploadingPDF]   = useState(false);
-    const [pdfName, setPdfName]             = useState(session.pdfName || '');
-    const [pdfUrl, setPdfUrl]               = useState(session.pdfUrl || '');
+    const [activeTab, setActiveTab] = useState<Tab>('pdf');
+    const [internalVisible, setInternalVisible] = useState(visible);
+    const [uploadingPDF, setUploadingPDF] = useState(false);
+    const [pdfName, setPdfName] = useState(session.pdfName || '');
+    const [pdfUrl, setPdfUrl] = useState(session.pdfUrl || '');
     const [generatingQuiz, setGeneratingQuiz] = useState(false);
     const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>(session.quizQuestions || []);
-    const [quizActive, setQuizActive]       = useState(session.quizActive || false);
-    const [quizResults, setQuizResults]     = useState<any[]>([]);
+    const [quizActive, setQuizActive] = useState(session.quizActive || false);
+    const [quizResults, setQuizResults] = useState<any[]>([]);
     const [loadingResults, setLoadingResults] = useState(false);
 
     const qrValue = JSON.stringify({ sessionId: session.id, courseId: session.courseId, type: 'attendance' });
 
     useEffect(() => {
-        if (activeTab === 'quiz' && quizActive) fetchQuizResults();
-    }, [activeTab, quizActive]);
+        setPdfName(session.pdfName || '');
+        setPdfUrl(session.pdfUrl || '');
+        setQuizQuestions(session.quizQuestions || []);
+        setQuizActive(session.quizActive || false);
+        if (session.pdfUrl && !pdfUrl) setActiveTab('pdf');
+    }, [session]);
+
 
     const handlePickPDF = async () => {
         try {
+            if (Platform.OS === 'android') {
+                setInternalVisible(false);
+                await new Promise<void>(resolve => setTimeout(resolve, 300));
+            }
+
             const result = await DocumentPicker.getDocumentAsync({
                 type: 'application/pdf',
                 copyToCacheDirectory: true,
             });
+
+            if (Platform.OS === 'android') setInternalVisible(true);
             if (result.canceled || !result.assets?.[0]) return;
 
             const file = result.assets[0];
             setUploadingPDF(true);
 
-            const base64 = await FileSystem.readAsStringAsync(file.uri, {
-                encoding: 'base64',
+            if (!session?.id) {
+                console.log("Error: Session ID is missing!");
+                return;
+            }
+
+            const data = new FormData();
+            data.append('file', {
+                uri: file.uri,
+                type: 'application/pdf',
+                name: file.name || 'lecture.pdf',
+            } as any);
+            data.append('upload_preset', 'flelb7gp'); 
+
+            const response = await fetch('https://api.cloudinary.com/v1_1/dpnzn3qfk/auto/upload', {
+                method: 'POST',
+                body: data,
             });
 
-            const byteChars = atob(base64);
-            const byteArray = new Uint8Array(byteChars.length);
-            for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i);
+            const resJson = await response.json();
 
-            const storage = getStorage();
-            const storageRef = ref(storage, `sessions/${session.id}/lecture.pdf`);
-            await uploadBytes(storageRef, byteArray, { contentType: 'application/pdf' });
-            const downloadURL = await getDownloadURL(storageRef);
+            if (!response.ok) {
+                throw new Error(resJson.error?.message || 'Cloudinary Upload Failed');
+            }
+
+            const downloadURL = resJson.secure_url || resJson.url;
+
+            if (!downloadURL) {
+                throw new Error("Could not get URL from Cloudinary");
+            }
+
+            console.log("Updating Firestore for Session:", session.id);
 
             await updateDoc(doc(db, 'sessions', session.id), {
                 pdfUrl: downloadURL,
@@ -117,10 +147,16 @@ export default function ProfessorMaterialsScreen({ visible, onClose, session, pr
 
             setPdfUrl(downloadURL);
             setPdfName(file.name ?? 'lecture.pdf');
-            onSessionUpdated();
-            Alert.alert('✅ تم', 'تم رفع الملف بنجاح وأصبح متاحاً للطلاب.');
+
+            if (onSessionUpdated) {
+                onSessionUpdated({ pdfUrl: downloadURL, pdfName: file.name ?? 'lecture.pdf' });
+            }
+
+            Alert.alert('✅ تم', 'تم رفع الملف وحفظه في النظام');
+
         } catch (e: any) {
-            console.error('PDF upload error:', e);
+            if (Platform.OS === 'android') setInternalVisible(true);
+            console.error("Final Error:", e.message);
             Alert.alert('خطأ', e.message);
         } finally {
             setUploadingPDF(false);
@@ -155,7 +191,9 @@ export default function ProfessorMaterialsScreen({ visible, onClose, session, pr
                 text: 'إرسال', onPress: async () => {
                     await updateDoc(doc(db, 'sessions', session.id), { quizActive: true });
                     setQuizActive(true);
-                    onSessionUpdated();
+                    if (onSessionUpdated) {
+                        onSessionUpdated({ quizActive: true });
+                    }
                 }
             },
         ]);
@@ -171,7 +209,7 @@ export default function ProfessorMaterialsScreen({ visible, onClose, session, pr
     };
 
     return (
-        <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+        <Modal visible={internalVisible} animationType="slide" transparent onRequestClose={onClose}>
             <View style={styles.overlay}>
                 <View style={styles.sheet}>
                     <View style={styles.handle} />
@@ -188,9 +226,9 @@ export default function ProfessorMaterialsScreen({ visible, onClose, session, pr
 
                     <View style={styles.tabRow}>
                         {([
-                            { key: 'pdf',  icon: 'picture-as-pdf', label: 'PDF' },
-                            { key: 'qr',   icon: 'qr-code-scanner', label: 'QR Code' },
-                            { key: 'quiz', icon: 'auto-awesome',    label: 'AI Quiz' },
+                            { key: 'pdf', icon: 'picture-as-pdf', label: 'PDF' },
+                            { key: 'qr', icon: 'qr-code-scanner', label: 'QR Code' },
+                            { key: 'quiz', icon: 'auto-awesome', label: 'AI Quiz' },
                         ] as { key: Tab; icon: string; label: string }[]).map(t => (
                             <TouchableOpacity key={t.key}
                                 style={[styles.tab, activeTab === t.key && styles.tabActive]}
@@ -292,7 +330,7 @@ export default function ProfessorMaterialsScreen({ visible, onClose, session, pr
                                                 {q.options.map((opt, j) => (
                                                     <View key={j} style={[styles.optionRow, j === q.correctIndex && styles.optionCorrect]}>
                                                         <Text style={[styles.optionLabel, j === q.correctIndex && styles.optionLabelCorrect]}>
-                                                            {['أ','ب','ج','د'][j]}. {opt}
+                                                            {['أ', 'ب', 'ج', 'د'][j]}. {opt}
                                                         </Text>
                                                         {j === q.correctIndex && <Icon name="check-circle" size={14} color="#10B981" />}
                                                     </View>
@@ -350,6 +388,7 @@ const styles = StyleSheet.create({
         borderTopLeftRadius: 24, borderTopRightRadius: 24,
         padding: 20, paddingBottom: Platform.OS === 'ios' ? 36 : 24,
         maxHeight: '92%',
+        minHeight: '75%',
     },
     handle: { width: 40, height: 4, backgroundColor: colors.border.primary, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
@@ -362,7 +401,6 @@ const styles = StyleSheet.create({
     tabText: { fontSize: 12, fontWeight: '600', color: colors.text.muted },
     tabTextActive: { color: '#fff' },
     content: { flex: 1 },
-    // PDF
     pdfEmpty: { alignItems: 'center', paddingVertical: 30 },
     pdfEmptyIcon: { width: 90, height: 90, borderRadius: 24, backgroundColor: colors.background.secondary, justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: colors.border.primary },
     pdfEmptyTitle: { fontSize: 17, fontWeight: '700', color: colors.text.primary, marginBottom: 8 },
@@ -376,7 +414,6 @@ const styles = StyleSheet.create({
     pdfStatus: { fontSize: 12, color: '#10B981', marginTop: 3 },
     replaceBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: colors.primary, borderRadius: 10, paddingVertical: 10 },
     replaceBtnText: { fontSize: 14, color: colors.primary, fontWeight: '600' },
-    // QR
     qrContainer: { alignItems: 'center', paddingTop: 8 },
     qrTitle: { fontSize: 18, fontWeight: '700', color: colors.text.primary, marginBottom: 6 },
     qrSubtitle: { fontSize: 13, color: colors.text.muted, textAlign: 'center', marginBottom: 24 },
@@ -385,7 +422,6 @@ const styles = StyleSheet.create({
     qrInfoText: { flex: 1, fontSize: 12, color: colors.text.muted, lineHeight: 18 },
     sessionBadge: { backgroundColor: colors.primary + '15', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
     sessionBadgeText: { fontSize: 13, color: colors.primary, fontWeight: '600' },
-    // Quiz
     quizActiveBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#10B98115', borderRadius: 12, padding: 14, marginBottom: 16 },
     quizActiveBannerText: { fontSize: 14, color: '#10B981', fontWeight: '700' },
     generateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#8B5CF6', borderRadius: 14, paddingVertical: 16, marginBottom: 20 },
