@@ -1,16 +1,12 @@
 const express = require("express");
-
-const {
-
-createSchedule,
-getSchedules
-
-} = require("./schedule.controller");
-
 const router = express.Router();
+const { authenticateUser, requireRole } = require("../middleware/auth.middleware");
+const { createSchedule, getSchedules, deleteSchedule } = require("./schedule.controller");
 
-router.post("/",createSchedule);
+router.use(authenticateUser);
 
-router.get("/",getSchedules);
+router.get("/", getSchedules);
+router.post("/", requireRole("ADMIN", "PROFESSOR"), createSchedule);
+router.delete("/:scheduleId", requireRole("ADMIN", "PROFESSOR"), deleteSchedule);
 
 module.exports = router;

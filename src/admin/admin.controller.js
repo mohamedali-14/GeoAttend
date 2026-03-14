@@ -1,6 +1,5 @@
 const { db } = require("../config/firebase");
 
-// GET all users with optional role filter and pagination
 async function getAllUsers(req, res) {
     try {
         const { role, limit = 20, startAfter } = req.query;
@@ -21,28 +20,19 @@ async function getAllUsers(req, res) {
         }
 
         const snapshot = await query.get();
-
-        const users = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
-
+        const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         const lastDoc = snapshot.docs[snapshot.docs.length - 1];
 
-        res.json({
-            users,
-            nextCursor: lastDoc ? lastDoc.id : null
-        });
+        res.json({ users, nextCursor: lastDoc ? lastDoc.id : null });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 }
 
-// UPDATE user info
 async function editUser(req, res) {
     try {
         const { userId } = req.params;
-        const { fullName, role } = req.body;
+        const { fullName, role, department, studentId } = req.body;
 
         const userRef = db.collection("users").doc(userId);
         const userDoc = await userRef.get();
@@ -51,19 +41,19 @@ async function editUser(req, res) {
             return res.status(404).json({ error: "User not found" });
         }
 
-        await userRef.update({
-            fullName,
-            role,
-            updatedAt: new Date()
-        });
+        const updateData = { updatedAt: new Date() };
+        if (fullName) updateData.fullName = fullName;
+        if (role) updateData.role = role;
+        if (department !== undefined) updateData.department = department;
+        if (studentId !== undefined) updateData.studentId = studentId;
 
+        await userRef.update(updateData);
         res.json({ message: "User updated successfully" });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 }
 
-// SOFT DELETE user (deactivate)
 async function deleteUser(req, res) {
     try {
         const { userId } = req.params;
@@ -74,20 +64,11 @@ async function deleteUser(req, res) {
             return res.status(404).json({ error: "User not found" });
         }
 
-        await userRef.update({
-            isActive: false,
-            updatedAt: new Date()
-        });
-
+        await userRef.update({ isActive: false, updatedAt: new Date() });
         res.json({ message: "User deactivated" });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 }
 
-// Export all functions
-module.exports = {
-    getAllUsers,
-    editUser,
-    deleteUser
-};
+module.exports = { getAllUsers, editUser, deleteUser };
