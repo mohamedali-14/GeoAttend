@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, MapPin, Home, ClipboardList, Settings, Bell, UserCircle, Calendar, ChevronRight, CheckCircle, XCircle, Clock, BookOpen, UserPlus, UserMinus } from "lucide-react";
+import { LogOut, MapPin, Home, ClipboardList, Settings, Bell, UserCircle, Calendar, ChevronRight, CheckCircle, XCircle, Clock, BookOpen, UserPlus, UserMinus, AlertCircle } from "lucide-react";
 import { LectureCard } from "./LectureCard";
 import { useAuth } from "../context/AuthContext";
 import { useMockData } from "../context/MockDataContext";
@@ -22,7 +22,9 @@ type Tab = "lectures" | "browse" | "schedule" | "attendance";
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { lectures, courses, schedules, enrollments, attendance, users, enrollStudent, unenrollStudent } = useMockData();
+  
+  // 🎯 استدعاء حالة الكويز
+  const { lectures, courses, schedules, enrollments, attendance, users, enrollStudent, unenrollStudent, quizStatus } = useMockData();
   const [showSettings, setShowSettings] = useState(false);
   const [tab,          setTab]          = useState<Tab>("lectures");
   const [activeDay,    setActiveDay]    = useState<Day>("Sunday");
@@ -128,6 +130,22 @@ export default function StudentDashboard() {
                 </div>
               </div>
 
+              {/* 🎯 إشعار الكويز (يظهر للطالب لما الدكتور يضغط Start Quiz) */}
+              {quizStatus === 'ACTIVE' && (
+                <div className="mb-8 bg-gradient-to-r from-orange-500 to-red-500 p-6 rounded-2xl flex justify-between items-center shadow-lg border border-orange-400/30 animate-in fade-in slide-in-from-top-4">
+                  <div className="flex items-center gap-4">
+                    <AlertCircle className="w-10 h-10 text-white animate-pulse" />
+                    <div>
+                      <h2 className="text-2xl font-bold text-white mb-1">Midterm Quiz is LIVE!</h2>
+                      <p className="text-orange-100 text-sm">The instructor has started the quiz. Join immediately before time runs out.</p>
+                    </div>
+                  </div>
+                  <button onClick={() => navigate('/quiz')} className="bg-white text-orange-600 px-6 py-3 rounded-xl font-bold shadow-md hover:bg-orange-50 transition-all border border-transparent hover:border-orange-200">
+                    Join Quiz Now
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 {[
                   { label: "Total Lectures", value: lectures.length,                                        color: "text-white"      },
@@ -147,7 +165,7 @@ export default function StudentDashboard() {
                   <LectureCard 
                     key={l.id} 
                     lecture={{ _id: l.id, title: l.title, doctor: { name: l.doctorName }, scheduledAt: l.scheduledAt, status: l.status }} 
-                    hasAttended={attendance.some(a => a.lectureId === l.id && a.studentId === user?.id)} 
+                    hasAttended={attendance.some(a => a.lectureId === l.id && a.studentId === user?.id)}
                   />
                 ))}
               </div>
