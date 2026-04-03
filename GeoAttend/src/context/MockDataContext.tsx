@@ -40,7 +40,6 @@ export interface Enrollment {
   studentId: string;
 }
 
-// NEW: track attendance per student per lecture
 export interface AttendanceRecord {
   id: string;
   lectureId: string;
@@ -83,6 +82,11 @@ export interface MockDataContextType {
   unbanUser: (id: string) => void;
   promoteToAdmin: (id: string) => void;
   demoteFromAdmin: (id: string, newRole: "STUDENT" | "DOCTOR") => void;
+
+  // 🎯 ميزات الكويز
+  quizStatus: "INACTIVE" | "ACTIVE";
+  startQuiz: () => void;
+  endQuiz: () => void;
 }
 
 const MockDataContext = createContext<MockDataContextType | null>(null);
@@ -147,14 +151,20 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const [enrollments, setEnrollments] = useState<Enrollment[]>(() => load("geo_all_enrollments", DEFAULT_ENROLLMENTS));
   const [attendance,  setAttendance]  = useState<AttendanceRecord[]>(() => load("geo_all_attendance", DEFAULT_ATTENDANCE));
 
+  // 🎯 حالة الكويز
+  const [quizStatus, setQuizStatus] = useState<"INACTIVE" | "ACTIVE">(() => {
+    const saved = localStorage.getItem("geo_quiz_status");
+    return saved === "ACTIVE" ? "ACTIVE" : "INACTIVE";
+  });
+
   useEffect(() => { save("geo_all_users",       users);       }, [users]);
   useEffect(() => { save("geo_all_lectures",    lectures);    }, [lectures]);
   useEffect(() => { save("geo_all_courses",     courses);     }, [courses]);
   useEffect(() => { save("geo_all_schedules",   schedules);   }, [schedules]);
   useEffect(() => { save("geo_all_enrollments", enrollments); }, [enrollments]);
   useEffect(() => { save("geo_all_attendance",  attendance);  }, [attendance]);
+  useEffect(() => { localStorage.setItem("geo_quiz_status", quizStatus); }, [quizStatus]);
 
-  // Users
   const addUser          = (u: User)                            => setUsers(p => [...p, u]);
   const updateUserInList = (id: string, data: Partial<User>)   => setUsers(p => p.map(u => u.id === id ? { ...u, ...data } : u));
   const deleteUser       = (id: string)                         => setUsers(p => p.filter(u => u.id !== id));
@@ -163,12 +173,10 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const promoteToAdmin   = (id: string)                         => setUsers(p => p.map(u => u.id === id ? { ...u, role: "ADMIN"  } : u));
   const demoteFromAdmin  = (id: string, r: "STUDENT"|"DOCTOR") => setUsers(p => p.map(u => u.id === id ? { ...u, role: r       } : u));
 
-  // Lectures
   const addLecture    = (l: Omit<Lecture,"id">)            => setLectures(p => [...p, { ...l, id: "L" + Date.now() }]);
   const updateLecture = (id: string, d: Partial<Lecture>)  => setLectures(p => p.map(l => l.id === id ? { ...l, ...d } : l));
   const deleteLecture = (id: string)                        => setLectures(p => p.filter(l => l.id !== id));
 
-  // Courses
   const addCourse    = (c: Omit<Course,"id">)             => setCourses(p => [...p, { ...c, id: "C" + Date.now() }]);
   const updateCourse = (id: string, d: Partial<Course>)   => setCourses(p => p.map(c => c.id === id ? { ...c, ...d } : c));
   const deleteCourse = (id: string)                        => {
@@ -177,16 +185,13 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     setEnrollments(p => p.filter(e => e.courseId !== id));
   };
 
-  // Schedules
   const addSchedule    = (s: Omit<Schedule,"id">)            => setSchedules(p => [...p, { ...s, id: "S" + Date.now() }]);
   const updateSchedule = (id: string, d: Partial<Schedule>)  => setSchedules(p => p.map(s => s.id === id ? { ...s, ...d } : s));
   const deleteSchedule = (id: string)                         => setSchedules(p => p.filter(s => s.id !== id));
 
-  // Enrollments
   const enrollStudent   = (courseId: string, studentId: string) => setEnrollments(p => [...p, { id: "E" + Date.now(), courseId, studentId }]);
   const unenrollStudent = (courseId: string, studentId: string) => setEnrollments(p => p.filter(e => !(e.courseId === courseId && e.studentId === studentId)));
 
-  // Attendance
   const markAttendance = (lectureId: string, studentId: string, courseId: string) => {
     const already = attendance.some(a => a.lectureId === lectureId && a.studentId === studentId);
     if (already) return;
@@ -199,6 +204,10 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     setLectures(p => p.map(l => l.id === lectureId ? { ...l, studentsPresent: Math.max(0, l.studentsPresent - 1) } : l));
   };
 
+  // 🎯 دوال تشغيل وإيقاف الكويز
+  const startQuiz = () => setQuizStatus("ACTIVE");
+  const endQuiz = () => setQuizStatus("INACTIVE");
+
   return (
     <MockDataContext.Provider value={{
       users, lectures, courses, schedules, enrollments, attendance,
@@ -209,6 +218,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       enrollStudent, unenrollStudent,
       markAttendance, unmarkAttendance,
       banUser, unbanUser, promoteToAdmin, demoteFromAdmin,
+      quizStatus, startQuiz, endQuiz // تم التصدير هنا
     }}>
       {children}
     </MockDataContext.Provider>
