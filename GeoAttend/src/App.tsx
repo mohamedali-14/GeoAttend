@@ -14,6 +14,7 @@ import AdminCourseEnrollment from "./pages/admin/AdminCourseEnrollment";
 import AdminLectures from "./pages/admin/AdminLectures";
 import AdminSettings from "./pages/admin/AdminSettings";
 import JoinLecture from "./pages/JoinLecture";
+import QuizPage from "./pages/QuizPage";
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
   const { user, isLoading, isAuthenticated } = useAuth();
@@ -49,7 +50,7 @@ function AppRoutes() {
       <Route path="/admin/lectures"                     element={<A><AdminLectures /></A>} />
       <Route path="/admin/settings"                     element={<A><AdminSettings /></A>} />
       <Route path="/join/:id" element={<ProtectedRoute allowedRoles={["STUDENT"]}><JoinLecture /></ProtectedRoute>} />
-
+      <Route path="/quiz" element={<QuizPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
