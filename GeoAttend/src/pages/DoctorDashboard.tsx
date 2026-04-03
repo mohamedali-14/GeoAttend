@@ -4,7 +4,7 @@ import {
   LogOut, MapPin, LayoutDashboard, Users, Settings, PlusCircle,
   PlayCircle, CheckCircle, Clock, X, Trash2, UserCircle,
   BookOpen, Calendar, Plus, Edit3, Save, AlertTriangle,
-  ChevronRight, Search, UserCheck, UserMinus
+  ChevronRight, Search, UserCheck, UserMinus, Download, FileText
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useMockData, type Lecture, type Course, type Schedule } from "../context/MockDataContext";
@@ -227,17 +227,16 @@ function ScheduleModal({ schedule, defaultDay, myCourses, onSave, onClose }: {
 }
 
 // ─────────────────────────────────────────────
-//  Students in Lecture Modal (المحدثة لعرض كل من سجل حضور)
+//  Students in Lecture Modal
 // ─────────────────────────────────────────────
 function LectureStudentsModal({ lecture, onClose }: { lecture: Lecture; onClose: () => void }) {
   const { courses, users, enrollments, attendance, markAttendance, unmarkAttendance } = useMockData();
   const [search, setSearch] = useState("");
   const course = lecture.courseId ? courses.find(c => c.id === lecture.courseId) : null;
   
-  // دمج الطلاب المسجلين مع الطلاب اللي عملوا Scan فعلياً
   const enrolledIds = course ? enrollments.filter(e => e.courseId === course.id).map(e => e.studentId) : [];
   const attendedIds = attendance.filter(a => a.lectureId === lecture.id).map(a => a.studentId);
-  const allStudentIds = Array.from(new Set([...enrolledIds, ...attendedIds])); // منع التكرار
+  const allStudentIds = Array.from(new Set([...enrolledIds, ...attendedIds])); 
   const allStudents = allStudentIds.map(id => users.find(u => u.id === id)).filter(Boolean);
 
   const isPresent = (sid: string) => attendance.some(a => a.lectureId === lecture.id && a.studentId === sid);
@@ -293,7 +292,6 @@ function LectureStudentsModal({ lecture, onClose }: { lecture: Lecture; onClose:
                 <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${present ? "bg-[#00D084]/20 text-[#00D084] border-[#00D084]/30" : "bg-red-500/10 text-red-400 border-red-500/20"}`}>
                   {present ? "Present" : "Absent"}
                 </span>
-                {/* زر إضافة/حذف الحضور يدوياً للدكتور */}
                 {lecture.status === "ACTIVE" && (
                   <button onClick={() => present ? unmarkAttendance(lecture.id, s!.id) : markAttendance(lecture.id, s!.id, course?.id || "")}
                     className={`p-2 rounded-lg transition-colors ${present ? "text-red-400 hover:bg-red-500/10" : "text-[#00D084] hover:bg-[#00D084]/10"}`}>
@@ -322,6 +320,7 @@ export default function DoctorDashboard() {
     courses, addCourse, updateCourse, deleteCourse,
     schedules, addSchedule, updateSchedule, deleteSchedule,
     enrollments,
+    quizStatus, startQuiz, endQuiz // 🎯 الدوال الخاصة بالكويز
   } = useMockData();
 
   const [tab,            setTab]            = useState<Tab>("lectures");
@@ -414,7 +413,7 @@ export default function DoctorDashboard() {
         <div>
           <div className="h-20 flex items-center px-8 border-b border-slate-800">
             <div className="flex items-center gap-2">
-              <div className="bg-blue-500 p-1.5 rounded-lg"><MapPin className="text-white w-5 h-5" /></div>
+              <div className="bg-[#00D084] p-1.5 rounded-lg"><MapPin className="text-gray-900 w-5 h-5" /></div>
               <span className="text-xl font-bold text-white tracking-wide">GeoAttend</span>
             </div>
           </div>
@@ -423,7 +422,7 @@ export default function DoctorDashboard() {
               <button key={n.id} onClick={() => setTab(n.id)}
                 className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors text-sm ${
                   tab === n.id
-                    ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                    ? "bg-[#00D084]/10 text-[#00D084] border border-[#00D084]/20"
                     : "text-slate-400 hover:bg-slate-800 hover:text-white border border-transparent"
                 }`}>
                 {n.icon}{n.label}
@@ -446,8 +445,8 @@ export default function DoctorDashboard() {
         </div>
         <div className="p-4 border-t border-slate-800">
           <button onClick={() => setShowSettings(true)}
-            className="w-full flex items-center gap-3 px-4 py-3 mb-2 rounded-xl bg-slate-800/50 hover:bg-blue-500/10 transition-all text-left">
-            <div className="bg-blue-500 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0">
+            className="w-full flex items-center gap-3 px-4 py-3 mb-2 rounded-xl bg-slate-800/50 hover:bg-[#00D084]/10 transition-all text-left">
+            <div className="bg-[#00D084] w-10 h-10 rounded-full flex items-center justify-center text-gray-900 font-bold shadow-[0_0_10px_rgba(0,208,132,0.4)] flex-shrink-0 text-sm">
               {user?.firstName?.[0]}{user?.lastName?.[0]}
             </div>
             <div className="overflow-hidden flex-1 min-w-0">
@@ -481,10 +480,32 @@ export default function DoctorDashboard() {
                     <UserCircle className="w-5 h-5" />
                   </button>
                   <button onClick={() => setShowModal(true)}
-                    className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 px-6 rounded-lg transition-all shadow-[0_0_15px_rgba(59,130,246,0.3)] flex items-center gap-2">
+                    className="bg-[#00D084] hover:bg-[#00B070] text-gray-900 font-bold py-2.5 px-6 rounded-lg transition-all shadow-[0_0_15px_rgba(0,208,132,0.3)] flex items-center gap-2">
                     <PlusCircle className="w-5 h-5" />New Lecture
                   </button>
                 </div>
+              </div>
+
+              {/* 🎯 لوحة تحكم الكويز الجديدة للدكتور */}
+              <div className="bg-[#111827] border border-slate-800 p-6 rounded-2xl flex items-center justify-between shadow-lg mb-8">
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-xl ${quizStatus === 'ACTIVE' ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-800 text-slate-400'}`}>
+                    <FileText className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-white mb-1">Midterm Quiz Control</h2>
+                    <p className="text-slate-400 text-sm">Status: <span className={quizStatus === 'ACTIVE' ? 'text-orange-400 font-bold' : 'text-slate-500'}>{quizStatus}</span></p>
+                  </div>
+                </div>
+                {quizStatus === 'INACTIVE' ? (
+                  <button onClick={startQuiz} className="bg-orange-600 hover:bg-orange-500 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(234,88,12,0.3)] flex items-center gap-2">
+                    <PlayCircle className="w-5 h-5" /> Start Quiz Now
+                  </button>
+                ) : (
+                  <button onClick={endQuiz} className="bg-red-600 hover:bg-red-500 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(220,38,38,0.3)] flex items-center gap-2">
+                    <X className="w-5 h-5" /> End Quiz
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -492,7 +513,7 @@ export default function DoctorDashboard() {
                   { label: "Total",     value: myLectures.length,                                   color: "text-white"      },
                   { label: "Active",    value: myLectures.filter(l=>l.status==="ACTIVE").length,    color: "text-[#00D084]"  },
                   { label: "Scheduled", value: myLectures.filter(l=>l.status==="SCHEDULED").length, color: "text-yellow-400" },
-                  { label: "Completed", value: myLectures.filter(l=>l.status==="COMPLETED").length, color: "text-blue-400"   },
+                  { label: "Completed", value: myLectures.filter(l=>l.status==="COMPLETED").length, color: "text-[#00D084]"   },
                 ].map(s => (
                   <div key={s.label} className="bg-[#111827] border border-slate-800 rounded-xl p-4">
                     <p className="text-slate-400 text-xs mb-1">{s.label}</p>
