@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 
+
 const adminRoutes = require("../admin/admin.routes");
 const authRoutes = require("../modules/auth/auth.routes");
 const courseRoutes = require("../courses/course.routes");
