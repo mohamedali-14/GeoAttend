@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 [debug] [2026-03-07T09:21:28.518Z] ----------------------------------------------------------------------
 [debug] [2026-03-07T09:21:28.541Z] Command:       /home/mo-ali/.nvm/versions/node/v20.20.1/bin/node /home/mo-ali/.nvm/versions/node/v20.20.1/bin/firebase emulators:start
 [debug] [2026-03-07T09:21:28.542Z] CLI Version:   15.9.0
@@ -741,3 +742,24 @@ Issues? Report them at https://github.com/firebase/firebase-tools/issues and att
     at Console._write (/home/mo-ali/.nvm/versions/node/v20.20.1/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
     at doWrite (/home/mo-ali/.nvm/versions/node/v20.20.1/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
 [error] 
+=======
+[debug] [2026-04-04T09:26:07.555Z] ----------------------------------------------------------------------
+[debug] [2026-04-04T09:26:07.559Z] Command:       /home/mo-ali/.nvm/versions/node/v20.20.1/bin/node /home/mo-ali/.nvm/versions/node/v20.20.1/bin/firebase init
+[debug] [2026-04-04T09:26:07.560Z] CLI Version:   15.13.0
+[debug] [2026-04-04T09:26:07.560Z] Platform:      linux
+[debug] [2026-04-04T09:26:07.560Z] Node Version:  v20.20.1
+[debug] [2026-04-04T09:26:07.560Z] Time:          Sat Apr 04 2026 11:26:07 GMT+0200 (Eastern European Standard Time)
+[debug] [2026-04-04T09:26:07.561Z] ----------------------------------------------------------------------
+[debug] 
+[info] 
+     ######## #### ########  ######## ########     ###     ######  ########
+     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
+     ######    ##  ########  ######   ########  #########  ######  ######
+     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
+     ##       #### ##     ## ######## ########  ##     ##  ######  ########
+
+You're about to initialize a Firebase project in this directory:
+
+  /home/mo-ali/Documents/GitHub/GeoAttend
+
+>>>>>>> Stashed changes
