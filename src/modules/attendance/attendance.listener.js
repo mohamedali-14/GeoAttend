@@ -1,5 +1,5 @@
-const { db } = require('../config/firebase');
-const { notifyStudentsSessionStarted } = require('../services/storage/notification.service');
+const { db } = require('../../config/firebase');
+const { notifyStudentsSessionStarted } = require('../../services/storage/notification.service');
 
 function listenToSessionChanges() {
     console.log('Setting up real-time listener for sessions...');

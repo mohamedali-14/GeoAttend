@@ -1,5 +1,5 @@
 const { db } = require("../../config/firebase");
-const { generateGeohash } = require("../../utils/geofire.utils");
+const { generateGeohash } = require("../../config/geofire");
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 
@@ -17,7 +17,19 @@ async function createSession(req, res) {
         const qrData = JSON.stringify({ sessionCode, courseId, professorId, type: 'ATTENDANCE' });
         const qrCodeUrl = await QRCode.toDataURL(qrData);
 
-        const geohash = location ? generateGeohash(location.lat, location.lng) : null;
+        // Generate geohash if location is provided
+        let geohash = null;
+        let locationData = null;
+        
+        if (location && location.lat && location.lng) {
+            geohash = generateGeohash(location.lat, location.lng);
+            locationData = {
+                lat: location.lat,
+                lng: location.lng,
+                address: location.address || '',
+                geohash
+            };
+        }
 
         const sessionData = {
             courseId,
@@ -27,13 +39,14 @@ async function createSession(req, res) {
             title: title || `Lecture - ${courseDoc.data().name}`,
             sessionCode,
             qrCodeUrl,
-            scheduledDate,
-            startTime,
-            endTime,
-            location,
+            scheduledDate: scheduledDate || new Date().toISOString().split('T')[0],
+            startTime: startTime || null,
+            endTime: endTime || null,
+            location: locationData,
             geohash,
-            radius,
+            radius: radius || 50,
             status: "SCHEDULED",
+            studentsPresent: 0,
             createdAt: new Date(),
             updatedAt: new Date()
         };
@@ -41,9 +54,12 @@ async function createSession(req, res) {
         const sessionRef = await db.collection('sessions').add(sessionData);
         res.status(201).json({ message: "Session created", session: { id: sessionRef.id, ...sessionData } });
     } catch (error) {
+        console.error('Create session error:', error);
         res.status(500).json({ error: error.message });
     }
 }
+
+// Keep all other functions (startSession, pauseSession, resumeSession, endSession, getSession, getSessions) as they are
 
 async function startSession(req, res) {
     try {
