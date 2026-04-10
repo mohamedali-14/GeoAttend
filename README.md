@@ -45,3 +45,24 @@ GeoAttend is a modern attendance management system that uses GPS location tracki
 ---
 
 ## 📁 Project Structure
+GeoAttend/
+├── functions/
+│ ├── src/
+│ │ ├── controllers/
+│ │ │ ├── session.controller.js
+│ │ │ └── attendance.controller.js
+│ │ ├── services/
+│ │ │ ├── notification.service.js
+│ │ │ ├── export.service.js
+│ │ │ └── storage.service.js
+│ │ ├── utils/
+│ │ │ ├── randomCheck.js
+│ │ │ └── selfieUpload.js
+│ │ ├── listeners/
+│ │ │ └── attendance.listener.js
+│ │ └── index.js
+│ ├── config/
+│ │ └── firebase.js
+│ └── tests/
+├── firestore.indexes.json
+└── README.md
