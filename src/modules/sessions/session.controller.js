@@ -1,5 +1,6 @@
-const { db } = require("../../config/firebase");
-const { generateGeohash } = require("../../config/geofire");
+const { db, admin } = require('../../config/firebase');
+const { generateGeohash } = require('../../config/geofire');
+const { notifyStudentsSessionStarted } = require('../../services/notification.service');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 
@@ -17,19 +18,7 @@ async function createSession(req, res) {
         const qrData = JSON.stringify({ sessionCode, courseId, professorId, type: 'ATTENDANCE' });
         const qrCodeUrl = await QRCode.toDataURL(qrData);
 
-        // Generate geohash if location is provided
-        let geohash = null;
-        let locationData = null;
-        
-        if (location && location.lat && location.lng) {
-            geohash = generateGeohash(location.lat, location.lng);
-            locationData = {
-                lat: location.lat,
-                lng: location.lng,
-                address: location.address || '',
-                geohash
-            };
-        }
+        const geohash = location ? generateGeohash(location.lat, location.lng) : null;
 
         const sessionData = {
             courseId,
@@ -39,12 +28,12 @@ async function createSession(req, res) {
             title: title || `Lecture - ${courseDoc.data().name}`,
             sessionCode,
             qrCodeUrl,
-            scheduledDate: scheduledDate || new Date().toISOString().split('T')[0],
-            startTime: startTime || null,
-            endTime: endTime || null,
-            location: locationData,
+            scheduledDate,
+            startTime,
+            endTime,
+            location,
             geohash,
-            radius: radius || 50,
+            radius,
             status: "SCHEDULED",
             studentsPresent: 0,
             createdAt: new Date(),
@@ -52,14 +41,15 @@ async function createSession(req, res) {
         };
 
         const sessionRef = await db.collection('sessions').add(sessionData);
-        res.status(201).json({ message: "Session created", session: { id: sessionRef.id, ...sessionData } });
+        
+        res.status(201).json({
+            message: "Session created",
+            session: { id: sessionRef.id, ...sessionData }
+        });
     } catch (error) {
-        console.error('Create session error:', error);
         res.status(500).json({ error: error.message });
     }
 }
-
-// Keep all other functions (startSession, pauseSession, resumeSession, endSession, getSession, getSessions) as they are
 
 async function startSession(req, res) {
     try {
@@ -69,11 +59,30 @@ async function startSession(req, res) {
         const sessionRef = db.collection('sessions').doc(sessionId);
         const sessionDoc = await sessionRef.get();
 
-        if (!sessionDoc.exists) return res.status(404).json({ error: 'Session not found' });
-        if (sessionDoc.data().professorId !== professorId) return res.status(403).json({ error: 'Not authorized' });
+        if (!sessionDoc.exists) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
 
-        await sessionRef.update({ status: 'ACTIVE', actualStartTime: new Date(), updatedAt: new Date() });
-        res.json({ message: 'Session started', session: { id: sessionId, status: 'ACTIVE' } });
+        const sessionData = sessionDoc.data();
+
+        if (sessionData.professorId !== professorId) {
+            return res.status(403).json({ error: 'Not authorized' });
+        }
+
+        await sessionRef.update({
+            status: 'ACTIVE',
+            actualStartTime: new Date(),
+            updatedAt: new Date()
+        });
+
+        // Send push notifications to all enrolled students
+        const updatedSession = { id: sessionId, ...sessionData, status: 'ACTIVE' };
+        await notifyStudentsSessionStarted(updatedSession);
+
+        res.json({
+            message: 'Session started - notifications sent to students',
+            session: { id: sessionId, status: 'ACTIVE' }
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -87,10 +96,19 @@ async function pauseSession(req, res) {
         const sessionRef = db.collection('sessions').doc(sessionId);
         const sessionDoc = await sessionRef.get();
 
-        if (!sessionDoc.exists) return res.status(404).json({ error: 'Session not found' });
-        if (sessionDoc.data().professorId !== professorId) return res.status(403).json({ error: 'Not authorized' });
+        if (!sessionDoc.exists) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
 
-        await sessionRef.update({ status: 'PAUSED', updatedAt: new Date() });
+        if (sessionDoc.data().professorId !== professorId) {
+            return res.status(403).json({ error: 'Not authorized' });
+        }
+
+        await sessionRef.update({
+            status: 'PAUSED',
+            updatedAt: new Date()
+        });
+
         res.json({ message: 'Session paused' });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -105,10 +123,19 @@ async function resumeSession(req, res) {
         const sessionRef = db.collection('sessions').doc(sessionId);
         const sessionDoc = await sessionRef.get();
 
-        if (!sessionDoc.exists) return res.status(404).json({ error: 'Session not found' });
-        if (sessionDoc.data().professorId !== professorId) return res.status(403).json({ error: 'Not authorized' });
+        if (!sessionDoc.exists) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
 
-        await sessionRef.update({ status: 'ACTIVE', updatedAt: new Date() });
+        if (sessionDoc.data().professorId !== professorId) {
+            return res.status(403).json({ error: 'Not authorized' });
+        }
+
+        await sessionRef.update({
+            status: 'ACTIVE',
+            updatedAt: new Date()
+        });
+
         res.json({ message: 'Session resumed' });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -123,10 +150,20 @@ async function endSession(req, res) {
         const sessionRef = db.collection('sessions').doc(sessionId);
         const sessionDoc = await sessionRef.get();
 
-        if (!sessionDoc.exists) return res.status(404).json({ error: 'Session not found' });
-        if (sessionDoc.data().professorId !== professorId) return res.status(403).json({ error: 'Not authorized' });
+        if (!sessionDoc.exists) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
 
-        await sessionRef.update({ status: 'ENDED', actualEndTime: new Date(), updatedAt: new Date() });
+        if (sessionDoc.data().professorId !== professorId) {
+            return res.status(403).json({ error: 'Not authorized' });
+        }
+
+        await sessionRef.update({
+            status: 'ENDED',
+            actualEndTime: new Date(),
+            updatedAt: new Date()
+        });
+
         res.json({ message: 'Session ended' });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -138,7 +175,9 @@ async function getSession(req, res) {
         const { sessionId } = req.params;
         const sessionDoc = await db.collection('sessions').doc(sessionId).get();
         
-        if (!sessionDoc.exists) return res.status(404).json({ error: 'Session not found' });
+        if (!sessionDoc.exists) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
         
         res.json({ id: sessionDoc.id, ...sessionDoc.data() });
     } catch (error) {
@@ -164,4 +203,12 @@ async function getSessions(req, res) {
     }
 }
 
-module.exports = { createSession, startSession, pauseSession, resumeSession, endSession, getSession, getSessions };
+module.exports = {
+    createSession,
+    startSession,
+    pauseSession,
+    resumeSession,
+    endSession,
+    getSession,
+    getSessions
+};
