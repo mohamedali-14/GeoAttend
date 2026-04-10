@@ -1,0 +1,47 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "attendanceSelfies",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "mode": "ASCENDING" },
+        { "fieldPath": "verificationStatus", "mode": "ASCENDING" },
+        { "fieldPath": "uploadedAt", "mode": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attendanceSelfies",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "mode": "ASCENDING" },
+        { "fieldPath": "studentId", "mode": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "professorId", "mode": "ASCENDING" },
+        { "fieldPath": "status", "mode": "ASCENDING" },
+        { "fieldPath": "scheduledDate", "mode": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "mode": "ASCENDING" },
+        { "fieldPath": "studentId", "mode": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "mode": "ASCENDING" },
+        { "fieldPath": "status", "mode": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
