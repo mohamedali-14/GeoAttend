@@ -55,6 +55,9 @@ export default function ProfessorMaterialsScreen({ visible, onClose, session, pr
         setQuizActive(session.quizActive || false);
         if (session.pdfUrl && !pdfUrl) setActiveTab('pdf');
     }, [session]);
+    useEffect(() => {
+        setInternalVisible(visible);
+    }, [visible]);
 
     const handlePickPDF = async () => {
         try {
@@ -245,78 +248,79 @@ export default function ProfessorMaterialsScreen({ visible, onClose, session, pr
                         )}
 
                         {activeTab === 'quiz' && (
-                            <View>
-                                {quizActive && (
-                                    <View style={styles.quizActiveBanner}>
-                                        <Icon name="live-tv" size={18} color="#10B981" />
-                                        <Text style={styles.quizActiveBannerText}>الاختبار نشط — الطلاب يحلون الآن</Text>
-                                    </View>
-                                )}
+                        <View>
+                            {quizActive && (
+                                <View style={styles.quizActiveBanner}>
+                                    <Icon name="live-tv" size={18} color="#10B981" />
+                                    <Text style={styles.quizActiveBannerText}>الاختبار نشط — الطلاب يحلون الآن</Text>
+                                </View>
+                            )}
 
-                                {!quizActive && (
-                                    <TouchableOpacity
-                                        style={[styles.generateBtn, generatingQuiz && { opacity: 0.6 }]}
-                                        onPress={handleGenerateQuiz}
-                                        disabled={generatingQuiz}>
-                                        {generatingQuiz
-                                            ? <><ActivityIndicator size="small" color="#fff" /><Text style={styles.generateBtnText}>جاري توليد الأسئلة...</Text></>
-                                            : <><Icon name="auto-awesome" size={20} color="#fff" /><Text style={styles.generateBtnText}>توليد أسئلة بالـ AI</Text></>
-                                        }
-                                    </TouchableOpacity>
-                                )}
+                            {quizQuestions.length === 0 && (
+                                <TouchableOpacity
+                                    style={[styles.generateBtn, generatingQuiz && { opacity: 0.6 }]}
+                                    onPress={handleGenerateQuiz}
+                                    disabled={generatingQuiz}>
+                                    {generatingQuiz
+                                        ? <><ActivityIndicator size="small" color="#fff" /><Text style={styles.generateBtnText}>جاري توليد الأسئلة...</Text></>
+                                        : <><Icon name="auto-awesome" size={20} color="#fff" /><Text style={styles.generateBtnText}>توليد أسئلة بالـ AI</Text></>
+                                    }
+                                </TouchableOpacity>
+                            )}
 
-                                {quizQuestions.length > 0 && (
-                                    <View style={styles.questionsPreview}>
-                                        <Text style={styles.previewTitle}>الأسئلة ({quizQuestions.length})</Text>
-                                        {quizQuestions.map((q, i) => (
-                                            <View key={i} style={styles.questionCard}>
-                                                <Text style={styles.questionNum}>س{i + 1}</Text>
-                                                <Text style={styles.questionText}>{q.question}</Text>
-                                                {q.options.map((opt, j) => (
-                                                    <View key={j} style={[styles.optionRow, j === q.correctIndex && styles.optionCorrect]}>
-                                                        <Text style={[styles.optionLabel, j === q.correctIndex && styles.optionLabelCorrect]}>
-                                                            {['أ', 'ب', 'ج', 'د'][j]}. {opt}
-                                                        </Text>
-                                                        {j === q.correctIndex && <Icon name="check-circle" size={14} color="#10B981" />}
-                                                    </View>
-                                                ))}
-                                            </View>
-                                        ))}
-                                        {!quizActive && (
-                                            <TouchableOpacity style={styles.activateBtn} onPress={handleActivateQuiz}>
-                                                <Icon name="send" size={18} color="#fff" />
-                                                <Text style={styles.activateBtnText}>إرسال الاختبار للطلاب</Text>
-                                            </TouchableOpacity>
-                                        )}
-                                    </View>
-                                )}
-
-                                {quizActive && (
-                                    <View style={styles.resultsSection}>
-                                        <View style={styles.resultsSectionHeader}>
-                                            <Text style={styles.resultsSectionTitle}>📊 درجات الطلاب</Text>
-                                            <TouchableOpacity onPress={fetchQuizResults}>
-                                                <Icon name="refresh" size={20} color={colors.primary} />
-                                            </TouchableOpacity>
+                            {quizQuestions.length > 0 && (
+                                <View style={styles.questionsPreview}>
+                                    <Text style={styles.previewTitle}>الأسئلة ({quizQuestions.length})</Text>
+                                    {quizQuestions.map((q, i) => (
+                                        <View key={i} style={styles.questionCard}>
+                                            <Text style={styles.questionNum}>س{i + 1}</Text>
+                                            <Text style={styles.questionText}>{q.question}</Text>
+                                            {q.options.map((opt, j) => (
+                                                <View key={j} style={[styles.optionRow, j === q.correctIndex && styles.optionCorrect]}>
+                                                    <Text style={[styles.optionLabel, j === q.correctIndex && styles.optionLabelCorrect]}>
+                                                        {['أ', 'ب', 'ج', 'د'][j]}. {opt}
+                                                    </Text>
+                                                    {j === q.correctIndex && <Icon name="check-circle" size={14} color="#10B981" />}
+                                                </View>
+                                            ))}
                                         </View>
-                                        {loadingResults
-                                            ? <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 30 }} />
-                                            : quizResults.length === 0
-                                                ? <View style={styles.noResults}><Icon name="hourglass-empty" size={40} color={colors.text.muted} /><Text style={styles.noResultsText}>لم يُسلِّم أحد بعد</Text></View>
-                                                : quizResults.map((r, i) => (
-                                                    <View key={r.id} style={styles.resultRow}>
-                                                        <View style={styles.resultRank}><Text style={styles.resultRankText}>#{i + 1}</Text></View>
-                                                        <Text style={styles.resultName} numberOfLines={1}>{r.studentName}</Text>
-                                                        <View style={[styles.scoreBadge, { backgroundColor: r.score >= 7 ? '#10B98120' : r.score >= 5 ? '#F59E0B20' : '#EF444420' }]}>
-                                                            <Text style={[styles.scoreText, { color: r.score >= 7 ? '#10B981' : r.score >= 5 ? '#F59E0B' : '#EF4444' }]}>{r.score}/10</Text>
-                                                        </View>
-                                                    </View>
-                                                ))
-                                        }
-                                    </View>
-                                )}
+                                    ))}
+                                    
+                                    {!quizActive && (
+                                        <TouchableOpacity style={styles.activateBtn} onPress={handleActivateQuiz}>
+                                            <Icon name="send" size={18} color="#fff" />
+                                            <Text style={styles.activateBtnText}>إرسال الاختبار للطلاب (تفعيل)</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                            )}
+
+        {quizQuestions.length > 0 && (
+            <View style={styles.resultsSection}>
+                <View style={styles.resultsSectionHeader}>
+                    <Text style={styles.resultsSectionTitle}>📊 درجات الطلاب</Text>
+                    <TouchableOpacity onPress={fetchQuizResults}>
+                        <Icon name="refresh" size={20} color={colors.primary} />
+                    </TouchableOpacity>
+                </View>
+                {loadingResults
+                    ? <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 30 }} />
+                    : quizResults.length === 0
+                        ? <View style={styles.noResults}><Icon name="hourglass-empty" size={40} color={colors.text.muted} /><Text style={styles.noResultsText}>لم يُسلِّم أحد بعد</Text></View>
+                        : quizResults.map((r, i) => (
+                            <View key={r.id} style={styles.resultRow}>
+                                <View style={styles.resultRank}><Text style={styles.resultRankText}>#{i + 1}</Text></View>
+                                <Text style={styles.resultName} numberOfLines={1}>{r.studentName}</Text>
+                                <View style={[styles.scoreBadge, { backgroundColor: r.score >= 7 ? '#10B98120' : r.score >= 5 ? '#F59E0B20' : '#EF444420' }]}>
+                                    <Text style={[styles.scoreText, { color: r.score >= 7 ? '#10B981' : r.score >= 5 ? '#F59E0B' : '#EF4444' }]}>{r.score}/10</Text>
+                                </View>
                             </View>
-                        )}
+                        ))
+                }
+            </View>
+        )}
+    </View>
+)}
 
                         <View style={{ height: 40 }} />
                     </ScrollView>
