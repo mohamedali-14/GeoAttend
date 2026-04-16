@@ -70,14 +70,14 @@ export interface QuizQuestion {
 }
 
 export interface QuizResult {
-    id: number;
+    id?: string;
     studentId: string;
     studentName: string;
     sessionId: string;
     courseId: string;
     answers: number[];
     score: number;
-    submittedAt: string;
+    submittedAt: string | any;
 }
 
 export interface StudentLocation {

@@ -6,7 +6,7 @@ import {
 import { QuizQuestion, QuizResult } from './types';
 import * as FileSystem from 'expo-file-system/legacy';
 
-const GEMINI_API_KEY = 'AIzaSyAKIsAX9Vf74ttrpE6NP4ddPqSE3krIFfY';
+const GEMINI_API_KEY = 'AIzaSyC9Xo2n8s1mLh3Zt5v9Qe7r8u6w4y2z1';
 
 export async function generateQuizWithAI(
     courseName: string,
@@ -130,16 +130,17 @@ export function subscribeToQuizResults(
         where('sessionId', '==', sessionId),
     );
     return onSnapshot(q, (snap) => {
-        callback(
+        return callback(
             snap.docs.map((d) => ({
-                studentId:   d.data().studentId   || '',
+                id: d.id,
+                studentId: d.data().studentId || '',
                 studentName: d.data().studentName || 'Unknown',
-                sessionId:   d.data().sessionId   || '',
-                courseId:    d.data().courseId    || '',
-                answers:     d.data().answers     || [],
-                score:       d.data().score       || 0,
+                sessionId: d.data().sessionId || '',
+                courseId: d.data().courseId || '',
+                answers: d.data().answers || [],
+                score: d.data().score || 0,
                 submittedAt: d.data().submittedAt || '',
-            })),
+            }))
         );
     });
 }
