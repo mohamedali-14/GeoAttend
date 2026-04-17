@@ -1,0 +1,84 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserRole() {
+      return request.auth.token.role;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'ADMIN';
+    }
+    
+    function isProfessor() {
+      return isAuthenticated() && getUserRole() == 'PROFESSOR';
+    }
+    
+    function isStudent() {
+      return isAuthenticated() && getUserRole() == 'STUDENT';
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      // Admin can read all, others read only their own
+      allow read: if isAdmin() || isOwner(userId);
+      // Only Admin can create/update/delete users
+      allow write: if isAdmin();
+    }
+    
+    // Courses collection
+    match /courses/{courseId} {
+      // Anyone authenticated can read courses
+      allow read: if isAuthenticated();
+      // Only Admin can create/update/delete courses
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // Schedules collection  
+    match /schedules/{scheduleId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // Sessions collection (Live lectures)
+    match /sessions/{sessionId} {
+      allow read: if isAuthenticated();
+      // Professor who owns the course or Admin can manage sessions
+      allow create, update, delete: if isAdmin() || 
+        (isProfessor() && resource.data.professorId == request.auth.uid);
+    }
+    
+    // Attendance collection
+    match /attendance/{attendanceId} {
+      // Users can read their own attendance
+      allow read: if isAdmin() || 
+        (isStudent() && resource.data.studentId == request.auth.uid) ||
+        (isProfessor() && resource.data.professorId == request.auth.uid);
+      // Students can create their own attendance
+      allow create: if isStudent() && request.resource.data.studentId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+    
+    // Enrollments collection
+    match /enrollments/{enrollmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || 
+        (isStudent() && resource.data.studentId == request.auth.uid);
+    }
+    
+    // System settings (Admin only)
+    match /system_settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}
