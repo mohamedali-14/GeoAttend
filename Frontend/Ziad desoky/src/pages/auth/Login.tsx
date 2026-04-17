@@ -22,15 +22,14 @@ export default function Login() {
       // ── Try real backend first ────────────────────────────────────────────
       let loggedUser = null;
       try {
-        const data = await apiLogin(identifier, password);
-        /*
+
           const allUsers = JSON.parse(localStorage.getItem("geo_all_users") || "[]");
       const user = allUsers.find((u: any) => u.email === identifier || u.studentID === identifier);
       if (!user || (user.password && user.password !== password)) {
         throw new Error("Invalid email or password.");
       }
       const data = { user };
-         */
+
         loggedUser = data.user;
       } catch {
         // ── Backend unavailable → fall back to mock users ─────────────────

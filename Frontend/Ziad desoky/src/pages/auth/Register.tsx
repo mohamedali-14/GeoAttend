@@ -19,44 +19,7 @@ export default function Register() {
     department: "", studentID: "", password: ""
   });
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    if (form.password.length < 6) { setError("Password must be at least 6 characters"); return; }
-    setLoading(true);
 
-    try {
-      // 1 — عمل الأكونت في Firebase عن طريق الباك
-      const res = await fetch(`${BASE_URL}/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email:     form.email,
-          password:  form.password,
-          fullName:  `${form.firstName} ${form.lastName}`,
-          role:      role,
-          department: form.department,
-          studentId: form.studentID,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Registration failed");
-
-      // 2 — Login تلقائي بعد التسجيل
-      const loginData = await apiLogin(form.email, form.password);
-      login({ ...loginData.user, role: role as UserRole });
-
-      if (role === "DOCTOR") navigate("/doctor");
-      else navigate("/student");
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Registration failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-/*
  const handleRegister = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -87,7 +50,7 @@ export default function Register() {
     if (role === "DOCTOR") navigate("/doctor");
     else navigate("/student");
   };
- */
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0B1120] p-4 font-sans" dir="ltr">
       <div className="w-full max-w-md bg-[#111827] p-8 rounded-2xl shadow-2xl border border-slate-800 my-8">
