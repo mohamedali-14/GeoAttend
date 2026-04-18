@@ -1,0 +1,46 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "attendanceSelfies",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "mode": "ASCENDING" },
+        { "fieldPath": "verificationStatus", "mode": "ASCENDING" },
+        { "fieldPath": "uploadedAt", "mode": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attendanceSelfies",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "mode": "ASCENDING" },
+        { "fieldPath": "studentId", "mode": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "randomChecks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "mode": "ASCENDING" },
+        { "fieldPath": "expiresAt", "mode": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "quizzes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "mode": "ASCENDING" },
+        { "fieldPath": "isActive", "mode": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "quizSubmissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "mode": "ASCENDING" },
+        { "fieldPath": "studentId", "mode": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
