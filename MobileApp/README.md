@@ -6,27 +6,10 @@
 ![Expo](https://img.shields.io/badge/Expo-51-black?logo=expo)
 ![Firebase](https://img.shields.io/badge/Firebase-10-orange?logo=firebase)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
-![License](https://img.shields.io/badge/License-MIT-green)
 
 تطبيق موبايل لتسجيل حضور الطلاب في المحاضرات الجامعية باستخدام QR Code و GPS و السيلفي والتحقق العشوائي
 
 </div>
-
----
-
-## المحتويات
-
-- [نظرة عامة](#نظرة-عامة)
-- [المميزات](#المميزات)
-- [هيكل المشروع](#هيكل-المشروع)
-- [المتطلبات](#المتطلبات)
-- [التثبيت](#التثبيت)
-- [إعداد Firebase](#إعداد-firebase)
-- [تشغيل المشروع](#تشغيل-المشروع)
-- [شاشات التطبيق](#شاشات-التطبيق)
-- [قاعدة البيانات](#قاعدة-البيانات)
-- [الأمان](#الأمان)
-- [البناء والنشر](#البناء-والنشر)
 
 ---
 
@@ -102,40 +85,6 @@ app/
 │   └── studentService.ts           # Firestore writes للطالب
 │
 └── _layout.tsx                     # App root + notification setup
-```
-
----
-
-## المتطلبات
-
-```
-Node.js          >= 18.0
-npm / yarn       latest
-Expo CLI         >= 0.18
-```
-
-**حسابات مطلوبة:**
-- [Firebase Console](https://console.firebase.google.com) — مجاني للبداية
-- [Expo Account](https://expo.dev) — مجاني
-- [Google AI Studio](https://aistudio.google.com) — للحصول على Gemini API key
-
----
-
-## التثبيت
-
-```bash
-npm install
-
-npx expo install expo-location
-npx expo install expo-camera
-npx expo install expo-image-picker
-npx expo install expo-notifications
-npx expo install expo-print
-npx expo install expo-sharing
-npx expo install expo-file-system
-npx expo install expo-device
-npx expo install @react-native-async-storage/async-storage
-
 ```
 ---
 
