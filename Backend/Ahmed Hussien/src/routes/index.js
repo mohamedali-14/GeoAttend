@@ -1,9 +1,7 @@
 const express = require("express");
 const router = express.Router();
 
-// ============================================
-// IMPORTS - Existing Routes
-// ============================================
+
 const adminRoutes = require("../admin/admin.routes");
 const authRoutes = require("../modules/auth/auth.routes");
 const courseRoutes = require("../courses/course.routes");
@@ -14,9 +12,10 @@ const sessionRoutes = require("../modules/sessions/session.routes");
 const attendanceRoutes = require("../modules/attendance/attendance.routes");
 const usersRoutes = require("../modules/users/users.routes");
 
-// ============================================
-// IMPORTS - Your Week 5 Services & Utils
-// ============================================
+
+const analyticsRoutes = require("./analytics.routes");
+
+
 const { 
     generateSessionAttendanceExcel, 
     generateSessionAttendancePDF 
@@ -38,9 +37,7 @@ const { markAttendance } = require("../modules/attendance/attendance.controller"
 
 const { authenticateUser, requireRole } = require("../middleware/auth.middleware");
 
-// ============================================
-// EXISTING ROUTES
-// ============================================
+
 router.use("/admin", adminRoutes);
 router.use("/auth", authRoutes);
 router.use("/courses", courseRoutes);
@@ -51,9 +48,9 @@ router.use("/sessions", sessionRoutes);
 router.use("/attendance", attendanceRoutes);
 router.use("/users", usersRoutes);
 
-// ============================================
-// HEALTH CHECK ENDPOINT
-// ============================================
+
+router.use("/analytics", analyticsRoutes);
+
 router.get("/health", (req, res) => {
     res.status(200).json({ 
         status: "OK", 
@@ -62,15 +59,7 @@ router.get("/health", (req, res) => {
     });
 });
 
-// ============================================
-// NEW WEEK 5 ENDPOINTS - Session with Verification Settings
-// ============================================
 
-/**
- * POST /sessions/with-settings
- * Create a new session with advanced verification settings (selfie, GPS, etc.)
- * Access: PROFESSOR only
- */
 router.post("/sessions/with-settings", authenticateUser, requireRole("PROFESSOR"), async (req, res) => {
     try {
         const { 
@@ -107,11 +96,7 @@ router.post("/sessions/with-settings", authenticateUser, requireRole("PROFESSOR"
     }
 });
 
-/**
- * PATCH /sessions/:sessionId/verification-settings
- * Update verification settings for an existing session
- * Access: PROFESSOR only
- */
+
 router.patch("/sessions/:sessionId/verification-settings", authenticateUser, requireRole("PROFESSOR"), async (req, res) => {
     try {
         const { sessionId } = req.params;
@@ -132,11 +117,7 @@ router.patch("/sessions/:sessionId/verification-settings", authenticateUser, req
     }
 });
 
-/**
- * GET /sessions/:sessionId/settings
- * Get session details including verification settings
- * Access: PROFESSOR or STUDENT (enrolled)
- */
+
 router.get("/sessions/:sessionId/settings", authenticateUser, async (req, res) => {
     try {
         const { sessionId } = req.params;
@@ -162,15 +143,7 @@ router.get("/sessions/:sessionId/settings", authenticateUser, async (req, res) =
     }
 });
 
-// ============================================
-// NEW WEEK 5 ENDPOINTS - Selfie Verification
-// ============================================
 
-/**
- * GET /sessions/:sessionId/pending-selfies
- * Get all pending selfies for a session (professor review queue)
- * Access: PROFESSOR only
- */
 router.get("/sessions/:sessionId/pending-selfies", authenticateUser, requireRole("PROFESSOR"), async (req, res) => {
     try {
         const { sessionId } = req.params;
@@ -247,15 +220,7 @@ router.post("/selfies/:selfieId/reject", authenticateUser, requireRole("PROFESSO
     }
 });
 
-// ============================================
-// NEW WEEK 5 ENDPOINTS - Attendance with Selfie
-// ============================================
 
-/**
- * POST /attendance/mark-with-selfie
- * Mark attendance with optional selfie verification
- * Access: STUDENT only
- */
 router.post("/attendance/mark-with-selfie", authenticateUser, requireRole("STUDENT"), async (req, res) => {
     try {
         const { sessionId, location, selfieBase64, ipAddress } = req.body;
@@ -298,15 +263,7 @@ router.post("/attendance/mark-with-selfie", authenticateUser, requireRole("STUDE
     }
 });
 
-// ============================================
-// NEW WEEK 5 ENDPOINTS - Export Reports
-// ============================================
 
-/**
- * GET /sessions/:sessionId/export/excel
- * Export attendance report to Excel
- * Access: PROFESSOR only
- */
 router.get("/sessions/:sessionId/export/excel", authenticateUser, requireRole("PROFESSOR"), async (req, res) => {
     try {
         const { sessionId } = req.params;
@@ -338,11 +295,7 @@ router.get("/sessions/:sessionId/export/excel", authenticateUser, requireRole("P
     }
 });
 
-/**
- * GET /sessions/:sessionId/export/pdf
- * Export attendance report to PDF
- * Access: PROFESSOR only
- */
+
 router.get("/sessions/:sessionId/export/pdf", authenticateUser, requireRole("PROFESSOR"), async (req, res) => {
     try {
         const { sessionId } = req.params;
