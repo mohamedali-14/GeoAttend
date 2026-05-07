@@ -245,17 +245,197 @@ async function getSessions(req, res) {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
+
+}
+// Add these functions to your existing session.controller.js
+
+/**
+ * Create a new session with verification settings (YOUR ENHANCED VERSION)
+ */
+async function createSessionWithSettings(sessionData) {
+    try {
+        const {
+            title,
+            courseId,
+            professorId,
+            professorName,
+            scheduledDate,
+            location,
+            radius = 50,
+            verificationSettings = {
+                requireGps: true,
+                requireSelfie: false,
+                requireQrCode: false,
+                requireRandomCheck: false,
+                selfieOptions: {
+                    allowRetakes: true,
+                    submissionTimeoutMinutes: 2,
+                    requireLivePhoto: true
+                }
+            }
+        } = sessionData;
+        
+        const courseDoc = await db.collection('courses').doc(courseId).get();
+        if (!courseDoc.exists) throw new Error('Course not found');
+        if (courseDoc.data().professorId !== professorId) {
+            throw new Error('You are not authorized to create sessions for this course');
+        }
+        
+        const sessionCode = crypto.randomBytes(8).toString('hex').toUpperCase();
+        const qrData = JSON.stringify({ sessionCode, courseId, professorId, type: 'ATTENDANCE' });
+        const qrCodeUrl = await QRCode.toDataURL(qrData);
+        
+        const geohash = location ? generateGeohash(location.lat, location.lng) : null;
+        
+        const sessionRef = await db.collection('sessions').add({
+            title,
+            courseId,
+            courseName: courseDoc.data().name,
+            professorId,
+            professorName,
+            scheduledDate: scheduledDate ? admin.firestore.Timestamp.fromDate(new Date(scheduledDate)) : null,
+            location,
+            geohash,
+            radius,
+            verificationSettings,
+            sessionCode,
+            qrCodeUrl,
+            status: 'SCHEDULED',
+            studentsPresent: 0,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        
+        console.log(`Session created: ${sessionRef.id} with selfie required: ${verificationSettings.requireSelfie}`);
+        return sessionRef.id;
+    } catch (error) {
+        console.error('Error creating session:', error);
+        throw error;
+    }
 }
 
+/**
+ * Update session verification settings
+ */
+async function updateSessionVerificationSettings(sessionId, professorId, updates) {
+    try {
+        const sessionDoc = await db.collection('sessions').doc(sessionId).get();
+        if (!sessionDoc.exists) throw new Error('Session not found');
+        if (sessionDoc.data().professorId !== professorId) {
+            throw new Error('You do not have permission to update this session');
+        }
+        const currentSettings = sessionDoc.data().verificationSettings || {};
+        await db.collection('sessions').doc(sessionId).update({
+            verificationSettings: { ...currentSettings, ...updates },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`Session ${sessionId} verification settings updated`);
+    } catch (error) {
+        console.error('Error updating session settings:', error);
+        throw error;
+    }
+}
+
+/**
+ * Get session details including verification settings
+ */
+async function getSessionWithSettings(sessionId) {
+    try {
+        const sessionDoc = await db.collection('sessions').doc(sessionId).get();
+        if (!sessionDoc.exists) throw new Error('Session not found');
+        return { id: sessionDoc.id, ...sessionDoc.data() };
+    } catch (error) {
+        console.error('Error getting session:', error);
+        throw error;
+    }
+}
+// Add this function to session.controller.js
+
+async function createSessionWithSettings(sessionData) {
+    try {
+        const {
+            title,
+            courseId,
+            professorId,
+            professorName,
+            scheduledDate,
+            location,
+            radius = 50,
+            verificationSettings = {
+                requireGps: true,
+                requireSelfie: false,
+                requireQrCode: false,
+                requireRandomCheck: false,
+                selfieOptions: {
+                    allowRetakes: true,
+                    submissionTimeoutMinutes: 2,
+                    requireLivePhoto: true
+                }
+            }
+        } = sessionData;
+        
+        const courseDoc = await db.collection('courses').doc(courseId).get();
+        if (!courseDoc.exists) throw new Error('Course not found');
+        if (courseDoc.data().professorId !== professorId) {
+            throw new Error('You are not authorized to create sessions for this course');
+        }
+        
+        const sessionCode = crypto.randomBytes(8).toString('hex').toUpperCase();
+        const qrData = JSON.stringify({ sessionCode, courseId, professorId, type: 'ATTENDANCE' });
+        const qrCodeUrl = await QRCode.toDataURL(qrData);
+        
+        const geohash = location ? generateGeohash(location.lat, location.lng) : null;
+        
+        const sessionRef = await db.collection('sessions').add({
+            title,
+            courseId,
+            courseName: courseDoc.data().name,
+            professorId,
+            professorName,
+            scheduledDate: scheduledDate ? admin.firestore.Timestamp.fromDate(new Date(scheduledDate)) : null,
+            location,
+            geohash,
+            radius,
+            verificationSettings,
+            sessionCode,
+            qrCodeUrl,
+            status: 'SCHEDULED',
+            studentsPresent: 0,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        
+        console.log(`Session created: ${sessionRef.id} with selfie required: ${verificationSettings.requireSelfie}`);
+        return sessionRef.id;
+    } catch (error) {
+        console.error('Error creating session:', error);
+        throw error;
+    }
+}
+
+// Also add getSessionWithSettings function
+async function getSessionWithSettings(sessionId) {
+    try {
+        const sessionDoc = await db.collection('sessions').doc(sessionId).get();
+        if (!sessionDoc.exists) throw new Error('Session not found');
+        return { id: sessionDoc.id, ...sessionDoc.data() };
+    } catch (error) {
+        console.error('Error getting session:', error);
+        throw error;
+    }
+}
+
+// Update module.exports to include these
 module.exports = {
     createSession,
-    createSessionWithSettings,
+    createSessionWithSettings,  // ← ADD THIS
     updateSessionVerificationSettings,
-    getSessionWithSettings,
+    getSessionWithSettings,      // ← ADD THIS
+    getSession,
+    getSessions,
     startSession,
     pauseSession,
     resumeSession,
-    endSession,
-    getSession,
-    getSessions
+    endSession
 };
+

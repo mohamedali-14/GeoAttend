@@ -1,15 +1,13 @@
-// src/services/export.service.js
-// COMPLETE VERSION - Full Excel and PDF generation with all styling
 
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
-const { db } = require("../config/firebase");
+const { db } = require('../config/firebase');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
 /**
- * Generate Excel attendance report with selfie verification status
+ * Generate Excel attendance report with selfie verification status and quiz scores
  * @param {string} sessionId - The session ID
  * @returns {Promise<string>} - Path to generated file
  */
@@ -53,6 +51,7 @@ async function generateSessionAttendanceExcel(sessionId) {
         });
         
         const requireSelfie = session.verificationSettings?.requireSelfie || false;
+        const quizEnabled = session.verificationSettings?.quizEnabled || false;
         
         // Build student data
         const students = [];
@@ -62,6 +61,19 @@ async function generateSessionAttendanceExcel(sessionId) {
                 const studentData = studentDoc.data();
                 const attendance = attendanceMap.get(studentId);
                 const selfie = selfieMap.get(studentId);
+                
+                // Get quiz score if quiz enabled
+                let quizScore = null;
+                if (quizEnabled) {
+                    const quizSubmission = await db.collection('quizSubmissions')
+                        .where('sessionId', '==', sessionId)
+                        .where('studentId', '==', studentId)
+                        .limit(1)
+                        .get();
+                    if (!quizSubmission.empty) {
+                        quizScore = quizSubmission.docs[0].data().score;
+                    }
+                }
                 
                 students.push({
                     id: studentId,
@@ -73,51 +85,110 @@ async function generateSessionAttendanceExcel(sessionId) {
                     verificationMethod: attendance?.verificationMethod || 'N/A',
                     verifiedAt: attendance?.verifiedAt?.toDate?.() || null,
                     selfieStatus: selfie?.verificationStatus || 'NOT_SUBMITTED',
-                    selfieUrl: selfie?.publicUrl || null
+                    selfieUrl: selfie?.publicUrl || null,
+                    quizScore: quizScore
                 });
             }
         }
         
         // Create workbook
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet('Attendance');
+        const worksheet = workbook.addWorksheet('Attendance Report');
         
-        // Determine column count based on selfie requirement
-        const columnCount = requireSelfie ? 8 : 6;
+        // Determine column count based on features enabled
+        let columnCount = 6; // Base: ID, Name, Email, Department, Status, Time
+        if (requireSelfie) columnCount += 2; // Selfie Status, Verification Method
+        if (quizEnabled) columnCount += 1; // Quiz Score
+        
         const lastColumnLetter = String.fromCharCode(64 + columnCount);
+        
+        // ============ HEADER SECTION ============
         
         // Title
         worksheet.mergeCells(`A1:${lastColumnLetter}1`);
         const titleRow = worksheet.getRow(1);
         titleRow.getCell(1).value = `Attendance Report: ${course.name}`;
-        titleRow.getCell(1).font = { size: 16, bold: true };
-        titleRow.getCell(1).alignment = { horizontal: 'center' };
+        titleRow.getCell(1).font = { size: 18, bold: true, name: 'Calibri' };
+        titleRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
         titleRow.height = 30;
         
         // Subtitle
         worksheet.mergeCells(`A2:${lastColumnLetter}2`);
-        worksheet.getRow(2).getCell(1).value = `Session: ${session.title} | Date: ${session.scheduledDate || 'N/A'}`;
-        worksheet.getRow(2).font = { italic: true };
+        worksheet.getRow(2).getCell(1).value = `Session: ${session.title}`;
+        worksheet.getRow(2).font = { size: 12, italic: true };
         worksheet.getRow(2).alignment = { horizontal: 'center' };
         
-        // Summary
+        // Date and Time
         worksheet.mergeCells(`A3:${lastColumnLetter}3`);
-        const presentCount = students.filter(s => s.present).length;
-        worksheet.getRow(3).getCell(1).value = `Total Students: ${students.length} | Present: ${presentCount} | Absent: ${students.length - presentCount}`;
-        worksheet.getRow(3).font = { bold: true };
+        const sessionDate = session.scheduledDate ? new Date(session.scheduledDate).toLocaleDateString() : 'N/A';
+        worksheet.getRow(3).getCell(1).value = `Date: ${sessionDate} | Generated: ${new Date().toLocaleString()}`;
+        worksheet.getRow(3).font = { size: 10, italic: true };
         worksheet.getRow(3).alignment = { horizontal: 'center' };
         
-        // Headers
+        // ============ SUMMARY SECTION ============
+        
+        worksheet.mergeCells(`A4:${lastColumnLetter}4`);
+        const presentCount = students.filter(s => s.present).length;
+        const absentCount = students.length - presentCount;
+        const attendanceRate = students.length > 0 ? Math.round((presentCount / students.length) * 100) : 0;
+        
+        worksheet.getRow(4).getCell(1).value = `📊 Summary: Total Students: ${students.length} | Present: ${presentCount} (${attendanceRate}%) | Absent: ${absentCount}`;
+        worksheet.getRow(4).font = { bold: true, size: 11 };
+        worksheet.getRow(4).alignment = { horizontal: 'center' };
+        
+        // Selfie summary if enabled
+        let currentRow = 5;
+        if (requireSelfie) {
+            const selfieStats = {
+                verified: students.filter(s => s.selfieStatus === 'VERIFIED').length,
+                pending: students.filter(s => s.selfieStatus === 'PENDING').length,
+                rejected: students.filter(s => s.selfieStatus === 'REJECTED').length,
+                notSubmitted: students.filter(s => s.selfieStatus === 'NOT_SUBMITTED').length
+            };
+            
+            worksheet.mergeCells(`A${currentRow}:${lastColumnLetter}${currentRow}`);
+            worksheet.getRow(currentRow).getCell(1).value = `📸 Selfie Status: ✅ Verified: ${selfieStats.verified} | ⏳ Pending: ${selfieStats.pending} | ❌ Rejected: ${selfieStats.rejected} | 📸 Not Submitted: ${selfieStats.notSubmitted}`;
+            worksheet.getRow(currentRow).font = { size: 10 };
+            worksheet.getRow(currentRow).alignment = { horizontal: 'center' };
+            currentRow++;
+        }
+        
+        // Quiz summary if enabled
+        if (quizEnabled) {
+            const quizScores = students.filter(s => s.quizScore !== null).map(s => s.quizScore);
+            const avgQuizScore = quizScores.length > 0 ? Math.round(quizScores.reduce((a, b) => a + b, 0) / quizScores.length) : 0;
+            const highestScore = quizScores.length > 0 ? Math.max(...quizScores) : 0;
+            const lowestScore = quizScores.length > 0 ? Math.min(...quizScores) : 0;
+            
+            worksheet.mergeCells(`A${currentRow}:${lastColumnLetter}${currentRow}`);
+            worksheet.getRow(currentRow).getCell(1).value = `🤖 Quiz Summary: Average: ${avgQuizScore}% | Highest: ${highestScore}% | Lowest: ${lowestScore}% | Taken: ${quizScores.length}/${students.length}`;
+            worksheet.getRow(currentRow).font = { size: 10 };
+            worksheet.getRow(currentRow).alignment = { horizontal: 'center' };
+            currentRow++;
+        }
+        
+        // Empty row for spacing
+        worksheet.getRow(currentRow).height = 10;
+        currentRow++;
+        
+        // ============ HEADERS SECTION ============
+        
         const headers = ['Student ID', 'Name', 'Email', 'Department', 'Status', 'Time'];
         if (requireSelfie) {
             headers.push('Selfie Status', 'Verification Method');
         }
+        if (quizEnabled) {
+            headers.push('Quiz Score');
+        }
         
         const headerRow = worksheet.addRow(headers);
-        headerRow.eachCell((cell) => {
-            cell.font = { bold: true, size: 12 };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2C3E50' } };
-            cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        headerRow.eachCell((cell, colNumber) => {
+            cell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+            cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FF2C3E50' }
+            };
             cell.border = {
                 top: { style: 'thin' },
                 left: { style: 'thin' },
@@ -128,7 +199,8 @@ async function generateSessionAttendanceExcel(sessionId) {
         });
         headerRow.height = 25;
         
-        // Data rows
+        // ============ DATA ROWS ============
+        
         students.forEach(student => {
             const rowData = [
                 student.studentId,
@@ -141,31 +213,43 @@ async function generateSessionAttendanceExcel(sessionId) {
             
             if (requireSelfie) {
                 let selfieStatus = 'N/A';
+                let selfieColor = null;
+                
                 if (!student.present) {
                     selfieStatus = 'Not Required (Absent)';
+                    selfieColor = 'FFE0E0E0';
                 } else if (student.selfieStatus === 'VERIFIED') {
                     selfieStatus = '✅ Verified';
+                    selfieColor = 'FFA5D6A5';
                 } else if (student.selfieStatus === 'PENDING') {
                     selfieStatus = '⏳ Pending Review';
+                    selfieColor = 'FFFFD966';
                 } else if (student.selfieStatus === 'REJECTED') {
                     selfieStatus = '❌ Rejected';
+                    selfieColor = 'FFFF9999';
                 } else {
                     selfieStatus = '📸 Not Submitted';
+                    selfieColor = 'FFFFB6C1';
                 }
                 rowData.push(selfieStatus, student.verificationMethod);
+            }
+            
+            if (quizEnabled) {
+                const scoreDisplay = student.quizScore !== null ? `${Math.round(student.quizScore)}%` : 'Not taken';
+                rowData.push(scoreDisplay);
             }
             
             const row = worksheet.addRow(rowData);
             row.height = 20;
             
-            // Color coding for status
+            // Color coding for status column (column 5)
             if (student.present) {
                 row.getCell(5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF90EE90' } };
             } else {
                 row.getCell(5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFB6C1' } };
             }
             
-            // Selfie status color coding
+            // Color coding for selfie status column if enabled
             if (requireSelfie && student.present) {
                 const selfieCell = row.getCell(7);
                 if (student.selfieStatus === 'VERIFIED') {
@@ -177,7 +261,21 @@ async function generateSessionAttendanceExcel(sessionId) {
                 }
             }
             
-            // Add borders to all cells in the row
+            // Color coding for quiz score if enabled
+            if (quizEnabled && student.quizScore !== null) {
+                const scoreCell = row.getCell(requireSelfie ? 9 : 7);
+                if (student.quizScore >= 90) {
+                    scoreCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA5D6A5' } };
+                } else if (student.quizScore >= 70) {
+                    scoreCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFD966' } };
+                } else if (student.quizScore >= 50) {
+                    scoreCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFB6C1' } };
+                } else {
+                    scoreCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF9999' } };
+                }
+            }
+            
+            // Add borders to all cells
             row.eachCell((cell) => {
                 cell.border = {
                     top: { style: 'thin' },
@@ -189,23 +287,25 @@ async function generateSessionAttendanceExcel(sessionId) {
             });
         });
         
+        // ============ FOOTER ============
+        
         // Auto-fit columns
         worksheet.columns.forEach(column => {
-            column.width = 20;
+            column.width = 18;
             column.alignment = { vertical: 'middle' };
         });
         
-        // Add footer with generation timestamp
+        // Add footer with generation info
         const footerRow = worksheet.addRow(['']);
-        footerRow.getCell(1).value = `Report generated on: ${new Date().toLocaleString()}`;
-        footerRow.getCell(1).font = { italic: true, size: 10 };
+        footerRow.getCell(1).value = `Report generated by GeoAttend System on ${new Date().toLocaleString()}`;
+        footerRow.getCell(1).font = { italic: true, size: 9 };
         worksheet.mergeCells(`A${worksheet.rowCount}:${lastColumnLetter}${worksheet.rowCount}`);
         
         // Save file
         const filePath = path.join(os.tmpdir(), `attendance_${sessionId}_${Date.now()}.xlsx`);
         await workbook.xlsx.writeFile(filePath);
         
-        console.log(`Excel report generated for session ${sessionId}`);
+        console.log(`✅ Excel report generated for session ${sessionId}`);
         return filePath;
     } catch (error) {
         console.error('Error generating Excel report:', error);
@@ -214,7 +314,7 @@ async function generateSessionAttendanceExcel(sessionId) {
 }
 
 /**
- * Generate PDF attendance report with selfie verification status
+ * Generate PDF attendance report with selfie verification status and quiz scores
  * @param {string} sessionId - The session ID
  * @returns {Promise<string>} - Path to generated file
  */
@@ -257,6 +357,18 @@ async function generateSessionAttendancePDF(sessionId) {
         });
         
         const requireSelfie = session.verificationSettings?.requireSelfie || false;
+        const quizEnabled = session.verificationSettings?.quizEnabled || false;
+        
+        // Get quiz scores if enabled
+        const quizScoresMap = new Map();
+        if (quizEnabled) {
+            const submissionsSnap = await db.collection('quizSubmissions')
+                .where('sessionId', '==', sessionId)
+                .get();
+            submissionsSnap.docs.forEach(doc => {
+                quizScoresMap.set(doc.data().studentId, doc.data().score);
+            });
+        }
         
         // Create PDF document
         const doc = new PDFDocument({ margin: 50, size: 'A4', layout: 'landscape' });
@@ -264,30 +376,42 @@ async function generateSessionAttendancePDF(sessionId) {
         const stream = fs.createWriteStream(filePath);
         doc.pipe(stream);
         
-        // Header Section
+        // ============ HEADER ============
+        
+        // Title
         doc.fontSize(24).font('Helvetica-Bold').text('Attendance Report', { align: 'center' });
         doc.moveDown(0.5);
-        doc.fontSize(14).font('Helvetica-Bold').text(course.name, { align: 'center' });
+        
+        // Course and Session Info
+        doc.fontSize(16).font('Helvetica-Bold').text(course.name, { align: 'center' });
         doc.fontSize(12).font('Helvetica');
         doc.text(`Session: ${session.title}`, { align: 'center' });
-        doc.text(`Date: ${session.scheduledDate || 'N/A'}`, { align: 'center' });
-        doc.text(`Selfie Required: ${requireSelfie ? 'Yes 📸' : 'No'}`, { align: 'center' });
+        
+        const sessionDate = session.scheduledDate ? new Date(session.scheduledDate).toLocaleDateString() : 'N/A';
+        doc.text(`Date: ${sessionDate}`, { align: 'center' });
+        doc.text(`Generated: ${new Date().toLocaleString()}`, { align: 'center' });
+        
         doc.moveDown();
         
-        // Draw a line
+        // Divider
         doc.strokeColor('#cccccc').lineWidth(1).moveTo(50, doc.y).lineTo(550, doc.y).stroke();
         doc.moveDown();
         
-        // Summary Section
+        // ============ SUMMARY SECTION ============
+        
         doc.fontSize(14).font('Helvetica-Bold').text('Summary', { underline: true });
         doc.fontSize(12).font('Helvetica');
-        doc.text(`Total Students: ${studentIds.length}`);
-        doc.text(`Present: ${presentStudentIds.length}`);
-        doc.text(`Absent: ${studentIds.length - presentStudentIds.length}`);
-        doc.text(`Attendance Rate: ${studentIds.length > 0 ? Math.round((presentStudentIds.length / studentIds.length) * 100) : 0}%`);
+        
+        const presentCount = presentStudentIds.length;
+        const absentCount = studentIds.length - presentCount;
+        const attendanceRate = studentIds.length > 0 ? Math.round((presentCount / studentIds.length) * 100) : 0;
+        
+        doc.text(`• Total Students: ${studentIds.length}`);
+        doc.text(`• Present: ${presentCount} (${attendanceRate}%)`);
+        doc.text(`• Absent: ${absentCount}`);
         doc.moveDown();
         
-        // Selfie Statistics (if enabled)
+        // Selfie Statistics
         if (requireSelfie) {
             const selfieStats = {
                 verified: 0,
@@ -309,20 +433,37 @@ async function generateSessionAttendancePDF(sessionId) {
                 }
             }
             
-            doc.fontSize(12).font('Helvetica-Bold').text('Selfie Verification Status (Present Students):');
-            doc.fontSize(11).font('Helvetica');
-            doc.text(`✅ Verified: ${selfieStats.verified}`, { indent: 20 });
-            doc.text(`⏳ Pending Review: ${selfieStats.pending}`, { indent: 20 });
-            doc.text(`❌ Rejected: ${selfieStats.rejected}`, { indent: 20 });
-            doc.text(`📸 Not Submitted: ${selfieStats.notSubmitted}`, { indent: 20 });
+            doc.fontSize(11).font('Helvetica-Bold').text('Selfie Verification Status:');
+            doc.fontSize(10).font('Helvetica');
+            doc.text(`   ✅ Verified: ${selfieStats.verified}`, { indent: 10 });
+            doc.text(`   ⏳ Pending Review: ${selfieStats.pending}`, { indent: 10 });
+            doc.text(`   ❌ Rejected: ${selfieStats.rejected}`, { indent: 10 });
+            doc.text(`   📸 Not Submitted: ${selfieStats.notSubmitted}`, { indent: 10 });
             doc.moveDown();
         }
         
-        // Draw another line
+        // Quiz Statistics
+        if (quizEnabled) {
+            const quizScores = Array.from(quizScoresMap.values());
+            const avgScore = quizScores.length > 0 ? Math.round(quizScores.reduce((a, b) => a + b, 0) / quizScores.length) : 0;
+            const highestScore = quizScores.length > 0 ? Math.max(...quizScores) : 0;
+            const lowestScore = quizScores.length > 0 ? Math.min(...quizScores) : 0;
+            
+            doc.fontSize(11).font('Helvetica-Bold').text('Quiz Performance:');
+            doc.fontSize(10).font('Helvetica');
+            doc.text(`   🤖 Average Score: ${avgScore}%`, { indent: 10 });
+            doc.text(`   🏆 Highest Score: ${highestScore}%`, { indent: 10 });
+            doc.text(`   📉 Lowest Score: ${lowestScore}%`, { indent: 10 });
+            doc.text(`   📝 Taken: ${quizScores.length}/${studentIds.length} students`, { indent: 10 });
+            doc.moveDown();
+        }
+        
+        // Divider
         doc.strokeColor('#cccccc').lineWidth(1).moveTo(50, doc.y).lineTo(550, doc.y).stroke();
         doc.moveDown();
         
-        // Attendance List Section
+        // ============ ATTENDANCE LIST ============
+        
         doc.fontSize(14).font('Helvetica-Bold').text('Attendance List', { underline: true });
         doc.moveDown(0.5);
         
@@ -333,27 +474,36 @@ async function generateSessionAttendancePDF(sessionId) {
         const col2 = 130;     // Name
         const col3 = 280;     // Status
         const col4 = 360;     // Selfie Status (if enabled)
-        const col5 = 460;     // Time
+        const col5 = 420;     // Quiz Score (if enabled)
+        const col6 = 490;     // Time
         
-        doc.fontSize(10).font('Helvetica-Bold');
+        doc.fontSize(9).font('Helvetica-Bold');
         doc.fillColor('#333333');
         doc.text('Student ID', col1, y);
         doc.text('Name', col2, y);
         doc.text('Status', col3, y);
+        
+        let currentCol = col4;
         if (requireSelfie) {
-            doc.text('Selfie Status', col4, y);
+            doc.text('Selfie Status', currentCol, y);
+            currentCol += 60;
         }
-        doc.text('Time', requireSelfie ? col5 : col4, y);
+        if (quizEnabled) {
+            doc.text('Quiz Score', currentCol, y);
+            currentCol += 70;
+        }
+        doc.text('Time', currentCol, y);
         
         // Draw header underline
         const headerY = y + 15;
-        doc.moveTo(col1, headerY).lineTo(requireSelfie ? col5 + 60 : col4 + 60, headerY).stroke();
-        y += 25;
+        doc.moveTo(col1, headerY).lineTo(currentCol + 50, headerY).stroke();
+        y += 22;
         
         doc.font('Helvetica');
         doc.fillColor('black');
         
-        // Data rows
+        // ============ DATA ROWS ============
+        
         let rowCount = 0;
         for (const studentId of studentIds) {
             const studentDoc = await db.collection('users').doc(studentId).get();
@@ -362,6 +512,7 @@ async function generateSessionAttendancePDF(sessionId) {
                 const present = presentStudentIds.includes(studentId);
                 const attendance = attendanceMap.get(studentId);
                 const selfie = selfieMap.get(studentId);
+                const quizScore = quizScoresMap.get(studentId);
                 
                 // Alternate row background
                 if (rowCount % 2 === 0) {
@@ -385,33 +536,46 @@ async function generateSessionAttendancePDF(sessionId) {
                 }
                 doc.fillColor('black');
                 
-                // Selfie Status (if enabled)
+                // Selfie Status
+                let currentX = col4;
                 if (requireSelfie) {
                     let selfieStatus = '';
                     let selfieColor = 'black';
                     if (!present) {
                         selfieStatus = 'N/A';
+                        selfieColor = '#888888';
                     } else if (!selfie) {
                         selfieStatus = 'Not Submitted';
-                        selfieColor = 'orange';
+                        selfieColor = '#FF9800';
                     } else if (selfie.verificationStatus === 'VERIFIED') {
                         selfieStatus = '✓ Verified';
-                        selfieColor = 'green';
+                        selfieColor = '#4CAF50';
                     } else if (selfie.verificationStatus === 'PENDING') {
                         selfieStatus = '⏳ Pending';
-                        selfieColor = 'orange';
+                        selfieColor = '#FFC107';
                     } else if (selfie.verificationStatus === 'REJECTED') {
                         selfieStatus = '✗ Rejected';
-                        selfieColor = 'red';
+                        selfieColor = '#F44336';
                     }
-                    doc.fillColor(selfieColor).text(selfieStatus, col4, y);
+                    doc.fillColor(selfieColor).text(selfieStatus, currentX, y);
                     doc.fillColor('black');
+                    currentX += 60;
+                }
+                
+                // Quiz Score
+                if (quizEnabled) {
+                    let scoreDisplay = quizScore !== undefined ? `${Math.round(quizScore)}%` : 'Not taken';
+                    let scoreColor = quizScore !== undefined ? 
+                        (quizScore >= 70 ? '#4CAF50' : (quizScore >= 50 ? '#FF9800' : '#F44336')) : '#888888';
+                    doc.fillColor(scoreColor).text(scoreDisplay, currentX, y);
+                    doc.fillColor('black');
+                    currentX += 70;
                 }
                 
                 // Time
                 const timeStr = present && attendance?.verifiedAt ? 
                     attendance.verifiedAt.toDate().toLocaleTimeString() : '-';
-                doc.text(timeStr, requireSelfie ? col5 : col4, y);
+                doc.text(timeStr, currentX, y);
                 
                 y += 22;
                 rowCount++;
@@ -422,35 +586,44 @@ async function generateSessionAttendancePDF(sessionId) {
                     y = 50;
                     
                     // Re-draw headers on new page
-                    doc.fontSize(10).font('Helvetica-Bold');
+                    doc.fontSize(9).font('Helvetica-Bold');
                     doc.fillColor('#333333');
                     doc.text('Student ID', col1, y);
                     doc.text('Name', col2, y);
                     doc.text('Status', col3, y);
+                    
+                    let newCol = col4;
                     if (requireSelfie) {
-                        doc.text('Selfie Status', col4, y);
+                        doc.text('Selfie Status', newCol, y);
+                        newCol += 60;
                     }
-                    doc.text('Time', requireSelfie ? col5 : col4, y);
-                    y += 20;
+                    if (quizEnabled) {
+                        doc.text('Quiz Score', newCol, y);
+                        newCol += 70;
+                    }
+                    doc.text('Time', newCol, y);
+                    
+                    y += 22;
                     doc.font('Helvetica');
                     doc.fillColor('black');
                 }
             }
         }
         
-        // Footer with generation timestamp
+        // ============ FOOTER ============
+        
         doc.moveDown();
         doc.fontSize(8).font('Helvetica-Oblique');
         doc.fillColor('#888888');
-        doc.text(`Report generated on: ${new Date().toLocaleString()}`, 50, doc.y);
-        doc.text(`GeoAttend System - Attendance Management`, 50, doc.y + 12);
+        doc.text(`Report generated by GeoAttend System on ${new Date().toLocaleString()}`, 50, doc.y);
+        doc.text(`© GeoAttend - Smart Attendance Management System`, 50, doc.y + 12);
         
         // End document
         doc.end();
         
         return new Promise((resolve) => {
             stream.on('finish', () => {
-                console.log(`PDF report generated for session ${sessionId}`);
+                console.log(`✅ PDF report generated for session ${sessionId}`);
                 resolve(filePath);
             });
         });
