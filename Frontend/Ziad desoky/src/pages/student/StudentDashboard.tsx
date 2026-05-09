@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { db } from "../../firebase";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import {
     LogOut, MapPin, Settings, UserCircle, Calendar, ChevronRight,
@@ -13,7 +15,10 @@ import { useSocket } from "../../context/SocketContext";
 import { useToast } from "../../context/ToastContext";
 import { useQuiz } from "../../context/QuizContext";
 import ProfileSettingsModal from "../shared/ProfileSettingsModal";
+import SelfieCaptureModal from "../../components/SelfieCaptureModal";
+import RandomCheckModal from "../../components/RandomCheckModal";
 import ConnectionStatus from "../../components/ConnectionStatus";
+import { apiGetSessions, apiJoinSession } from "../../services/api";
 import {
     QRScannerModal, CourseSessionList, QuizAlertBanner,
     AttendanceTrendChart, QuizPerformanceChart, BadgesPanel,
@@ -24,22 +29,20 @@ import {
 import type { Day } from "./components/studentUtils";
 
 // ── useStudentStats hook ───────────────────────────────────────────────────────
-function useStudentStats(userId: string, myCourses: any[], users: any[], submissions: any[]) {
+function useStudentStats(userId: string, myCourses: any[], allSessions: any[], attendanceHistory: any[], submissions: any[]) {
     return useMemo(() => {
-        const localSessions = getLocalSessions(users);
-        const myCourseSessions = localSessions.filter(s =>
-            myCourses.some(c => c.id === s.courseId) && !s.isActive
+        const myCourseSessions = allSessions.filter(s =>
+            myCourses.some(c => c.id === s.courseId) && s.status !== "ACTIVE"
         );
         const totalLectures = myCourseSessions.length;
-        const attended = myCourseSessions.filter(s => didStudentAttend(s, userId)).length;
+        const attended = attendanceHistory.length;
         const overallPct = totalLectures > 0 ? Math.round((attended / totalLectures) * 100) : null;
         const avgQuizScore = submissions.length > 0
             ? Math.round(submissions.reduce((s, q) => s + q.score, 0) / submissions.length)
             : null;
         const streak = (() => {
-            const times = myCourseSessions
-                .filter(s => didStudentAttend(s, userId) && s.startTime)
-                .map(s => new Date(s.startTime).getTime())
+            const times = attendanceHistory
+                .map(a => new Date(a.timestamp).getTime())
                 .filter(t => !isNaN(t))
                 .sort((a, b) => b - a);
             let str = 0;
@@ -50,7 +53,8 @@ function useStudentStats(userId: string, myCourses: any[], users: any[], submiss
         })();
         const perfectCourses = myCourses.filter(c => {
             const sessions = myCourseSessions.filter(s => s.courseId === c.id);
-            return sessions.length > 0 && sessions.every(s => didStudentAttend(s, userId));
+            const myAtt = attendanceHistory.filter(a => a.courseId === c.id);
+            return sessions.length > 0 && sessions.length === myAtt.length;
         }).length;
         return {
             totalLectures, attended, overallPct, avgQuizScore,
@@ -58,7 +62,7 @@ function useStudentStats(userId: string, myCourses: any[], users: any[], submiss
             totalCourses: myCourses.length,
             totalQuizzes: submissions.length
         };
-    }, [userId, myCourses, users, submissions]);
+    }, [userId, myCourses, allSessions, attendanceHistory, submissions]);
 }
 
 export default function StudentDashboard() {
@@ -69,10 +73,13 @@ export default function StudentDashboard() {
     const { sessions: quizSessions, submissions: allSubmissions, getStudentSubmissions } = useQuiz();
     const toast = useToast();
 
+    const [backendSessions, setBackendSessions] = useState<any[]>([]);
+    const [attendanceHistory, setAttendanceHistory] = useState<any[]>([]);
+
     const mySubmissions = useMemo(() => user ? getStudentSubmissions(user.id) : [], [user, getStudentSubmissions, allSubmissions]);
     const myCourseIds = enrollments.filter(e => e.studentId === user?.id).map(e => e.courseId);
     const myCourses = courses.filter(c => myCourseIds.includes(c.id));
-    const stats = useStudentStats(user?.id || "", myCourses, users, mySubmissions);
+    const stats = useStudentStats(user?.id || "", myCourses, backendSessions, attendanceHistory, mySubmissions);
 
     const [showSettings, setShowSettings] = useState(false);
     const [tab, setTab] = useState<Tab>("home");
@@ -81,42 +88,119 @@ export default function StudentDashboard() {
     const [hasMarked, setHasMarked] = useState(false);
     const [distanceWarning, setDistanceWarning] = useState(false);
     const [showQRScanner, setShowQRScanner] = useState(false);
+    const [showSelfieModal, setShowSelfieModal] = useState(false);
+    const [pendingGeoLocation, setPendingGeoLocation] = useState<{lat:number, lng:number}|null>(null);
     const [selAttCourse, setSelAttCourse] = useState<string | null>(null);
+    const [answeredRandomCheckAt, setAnsweredRandomCheckAt] = useState<number>(0);
     const geoInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const mySchedules = schedules.filter(s => myCourseIds.includes(s.courseId));
     const daySchedules = mySchedules.filter(s => s.day === activeDay).sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-    const localSessions = useMemo(() => getLocalSessions(users), [users, attendanceEvents]);
-    const myLocalSessions = useMemo(() =>
-            localSessions.filter(s => myCourseIds.includes(s.courseId) && !s.isActive),
-        [localSessions, myCourseIds]
-    );
-    const totalSessions = myLocalSessions.length;
-    const totalAttended = myLocalSessions.filter(s => didStudentAttend(s, user?.id || "")).length;
-    const overallPct = totalSessions > 0 ? Math.round((totalAttended / totalSessions) * 100) : null;
+    // Real-time synchronization using Firestore (Direct linking like Omar Shabaan)
+    useEffect(() => {
+        if (!user) return;
+        
+        // Offline / Quota Fallback: Load active session from localStorage
+        const checkLocalSession = () => {
+            try {
+                const raw = localStorage.getItem("geo_active_session");
+                if (raw) {
+                    const live = JSON.parse(raw);
+                    setActiveSession(live);
+                } else {
+                    setActiveSession(null);
+                    setHasMarked(false);
+                    setDistanceWarning(false);
+                }
+            } catch { }
+        };
+        
+        checkLocalSession();
+        window.addEventListener("storage", checkLocalSession); // Sync across tabs for demo
+
+        // 2. Poll Backend API as Fallback for Cross-Device Sync (since Firestore is quota-limited)
+        const pollBackend = async () => {
+            try {
+                const api = await import("../../services/api");
+                const sessions = await api.apiGetSessions();
+                setBackendSessions(sessions);
+                
+                const live = sessions.find((s: any) =>
+                    s.status === "ACTIVE" || s.isActive === true
+                );
+                
+                if (live) {
+                    setActiveSession(live);
+                    localStorage.setItem("geo_active_session", JSON.stringify(live));
+                } else {
+                    const raw = localStorage.getItem("geo_active_session");
+                    if (raw && !live) {
+                       // If backend says no live sessions but local storage has one, it might have ended
+                       setActiveSession(null);
+                       setHasMarked(false);
+                       setDistanceWarning(false);
+                       localStorage.removeItem("geo_active_session");
+                    }
+                }
+            } catch (err) { }
+        };
+
+        pollBackend();
+        const pollIv = setInterval(pollBackend, 5000);
+
+        // Listen for ALL sessions (to detect active ones via Firestore if available)
+        const sessionsQuery = collection(db, "sessions");
+        const unsubSessions = onSnapshot(sessionsQuery, (snap) => {
+            const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            setBackendSessions(sessions);
+
+            const live = sessions.find((s: any) =>
+                s.status === "ACTIVE" || s.isActive === true
+            );
+            
+            if (live) {
+                setActiveSession(live);
+                localStorage.setItem("geo_active_session", JSON.stringify(live));
+            }
+        });
+
+        // 2. Listen for MY attendance history
+        const attendanceQuery = query(collection(db, "attendance"), where("studentId", "==", user.id));
+        const unsubAttendance = onSnapshot(attendanceQuery, (snap) => {
+            const history = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            setAttendanceHistory(history);
+            // Auto-detect if already marked for current active session (cross-device support)
+            setActiveSession((currentActive: any) => {
+                if (currentActive) {
+                    const alreadyMarked = history.some((a: any) => 
+                        a.sessionId === currentActive.id && a.status === "present"
+                    );
+                    if (alreadyMarked) setHasMarked(true);
+                }
+                return currentActive;
+            });
+        });
+
+        return () => {
+            clearInterval(pollIv);
+            unsubSessions();
+            unsubAttendance();
+            window.removeEventListener("storage", checkLocalSession);
+        };
+    }, [user, myCourseIds.join(",")]);
 
     const getStats = (courseId: string) => {
-        const courseSessions = localSessions.filter(s => s.courseId === courseId && !s.isActive);
+        const courseSessions = backendSessions.filter(s => s.courseId === courseId && s.status === "ENDED");
+        const myAtt = attendanceHistory.filter(a => a.courseId === courseId);
         const total = courseSessions.length;
-        const present = courseSessions.filter(s => didStudentAttend(s, user?.id || "")).length;
+        const present = myAtt.length;
         return { total, present, pct: total > 0 ? Math.round((present / total) * 100) : null };
     };
 
-    useEffect(() => {
-        const check = () => {
-            try {
-                const raw = localStorage.getItem("geo_active_session");
-                const session = raw ? JSON.parse(raw) : null;
-                setActiveSession(session);
-                if (!session) { setHasMarked(false); setDistanceWarning(false); }
-            } catch { }
-        };
-        check();
-        const iv = setInterval(check, 2000);
-        window.addEventListener("storage", check);
-        return () => { clearInterval(iv); window.removeEventListener("storage", check); };
-    }, []);
+    const totalSessions = backendSessions.filter(s => s.status === "ENDED" && myCourseIds.includes(s.courseId)).length;
+    const totalAttended = attendanceHistory.length;
+    const overallPct    = stats.overallPct;
 
     useEffect(() => {
         if (!user) return;
@@ -146,12 +230,21 @@ export default function StudentDashboard() {
             return;
         }
         const checkGeo = () => {
-            navigator.geolocation.getCurrentPosition((pos) => {
-                const dist = haversine(pos.coords.latitude, pos.coords.longitude, activeSession.centerLat, activeSession.centerLng);
-                const outside = dist > activeSession.radiusMeters;
-                setDistanceWarning(outside);
-                if (outside) toast.warning("You left the lecture area!");
-            });
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const dist = haversine(pos.coords.latitude, pos.coords.longitude, activeSession.centerLat, activeSession.centerLng);
+                    const outside = dist > activeSession.radiusMeters;
+                    setDistanceWarning(outside);
+                    if (outside) toast.warning(`You are ${Math.round(dist)}m away from the lecture area!`);
+                },
+                (err) => {
+                    if (err.code === 1) {
+                        // Permission denied on mobile — stop checking, don't spam errors
+                        if (geoInterval.current) { clearInterval(geoInterval.current); geoInterval.current = null; }
+                    }
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+            );
         };
         geoInterval.current = setInterval(checkGeo, 15000);
         return () => { if (geoInterval.current) clearInterval(geoInterval.current); };
@@ -163,38 +256,133 @@ export default function StudentDashboard() {
             toast.error("You are not enrolled in this course!");
             return;
         }
-        const doMark = (geoStatus: "inside" | "no_geo") => {
-            emitAttendance({
-                sessionId: activeSession.id,
-                studentId: user.id,
-                studentName: `${user.firstName} ${user.lastName}`,
-                courseId: activeSession.courseId,
-                timestamp: new Date().toISOString(),
-                geoStatus
-            });
-            setHasMarked(true);
-            toast.success("Attendance recorded!");
+
+        const proceedToMark = (lat: number, lng: number) => {
+            if (activeSession.selfieEnabled) {
+                setPendingGeoLocation({ lat, lng });
+                setShowSelfieModal(true);
+            } else {
+                doMark("inside", lat, lng, null);
+            }
         };
-        if (!activeSession.geoEnabled || !activeSession.centerLat) { doMark("no_geo"); return; }
+
+        const doMark = async (geoStatus: "inside" | "no_geo", lat: number, lng: number, selfieUrl: string | null) => {
+            try {
+                // Try backend API (may fail if already marked or network issue)
+                try {
+                    await apiJoinSession(activeSession.id, { lat, lng, selfieUrl });
+                } catch (apiErr: any) {
+                    const msg = apiErr?.message || "";
+                    // If already marked, just update UI state (don't block)
+                    if (msg.includes("already") || msg.includes("Already")) {
+                        setHasMarked(true);
+                        toast.info("Attendance already recorded for this session.");
+                        return;
+                    }
+                    // For other backend errors (network, auth), continue to Firestore direct write
+                    console.warn("[attendance] Backend API failed, falling back to Firestore:", msg);
+                }
+                
+                // Always write directly to Firestore for robust cross-device sync
+                const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
+                await setDoc(doc(db, "attendance", `${activeSession.id}_${user.id}`), {
+                    sessionId: activeSession.id,
+                    courseId: activeSession.courseId,
+                    studentId: user.id,
+                    studentName: `${user.firstName} ${user.lastName}`,
+                    timestamp: new Date().toISOString(),
+                    geoStatus,
+                    status: "present",
+                    selfieUrl: selfieUrl || null,
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+
+                setHasMarked(true);
+                toast.success("Attendance recorded!");
+            } catch (error: any) {
+                toast.error(error.message || "Failed to mark attendance");
+            }
+        };
+
+        if (!activeSession.geoEnabled || !activeSession.centerLat) { 
+            if (activeSession.selfieEnabled) {
+                 setPendingGeoLocation({ lat: 0, lng: 0 });
+                 setShowSelfieModal(true);
+            } else {
+                 doMark("no_geo", 0, 0, null); 
+            }
+            return; 
+        }
+
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 const dist = haversine(pos.coords.latitude, pos.coords.longitude, activeSession.centerLat, activeSession.centerLng);
                 if (dist > activeSession.radiusMeters) {
-                    toast.error(`You are ${Math.round(dist)}m away. Must be within ${activeSession.radiusMeters}m.`);
+                    toast.error(`You are ${Math.round(dist)}m away from the lecture room. Must be within ${activeSession.radiusMeters}m to mark attendance.`);
                     return;
                 }
-                doMark("inside");
+                proceedToMark(pos.coords.latitude, pos.coords.longitude);
             },
-            () => toast.error("Could not get your location.")
+            (err) => {
+                if (err.code === 1) {
+                    // PERMISSION_DENIED — let student mark without GPS but warn doctor
+                    toast.warning("Location access denied. Marking attendance without GPS verification.");
+                    doMark("no_geo", 0, 0, null);
+                } else {
+                    toast.error("Could not get your location. Please enable GPS and try again.");
+                }
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
+    };
+
+    const handleSelfieCapture = (url: string) => {
+        setShowSelfieModal(false);
+        const lat = pendingGeoLocation?.lat || 0;
+        const lng = pendingGeoLocation?.lng || 0;
+        const geoStatus = (activeSession?.geoEnabled && activeSession?.centerLat) ? "inside" : "no_geo";
+        
+        const finalMark = async () => {
+             try {
+                // Try backend API first, but don't block on failure
+                try {
+                    await apiJoinSession(activeSession.id, { lat, lng, selfieUrl: url });
+                } catch (apiErr: any) {
+                    const msg = apiErr?.message || "";
+                    if (msg.includes("already") || msg.includes("Already")) {
+                        setHasMarked(true);
+                        toast.info("Attendance already recorded for this session.");
+                        return;
+                    }
+                    console.warn("[attendance] Backend API failed (selfie), falling back to Firestore:", msg);
+                }
+                // Always write directly to Firestore for cross-device sync
+                const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
+                await setDoc(doc(db, "attendance", `${activeSession.id}_${user?.id}`), {
+                    sessionId: activeSession.id,
+                    courseId: activeSession.courseId,
+                    studentId: user?.id,
+                    studentName: `${user?.firstName} ${user?.lastName}`,
+                    timestamp: new Date().toISOString(),
+                    geoStatus,
+                    status: "present",
+                    selfieUrl: url,
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+                setHasMarked(true);
+                toast.success("Attendance recorded with selfie!");
+             } catch(err:any) {
+                toast.error(err.message || "Failed to mark attendance");
+             }
+        };
+        finalMark();
     };
 
     const handleLeaveSession = () => {
         if (!activeSession || !user || !hasMarked) return;
-        studentLeave(activeSession.id, user.id);
         setHasMarked(false);
         setDistanceWarning(false);
-        toast.info("You have left the session");
+        toast.info("You have left the session locally");
     };
 
     const handleQRScanned = (data: string) => {
@@ -203,6 +391,32 @@ export default function StudentDashboard() {
         if (activeSession?.id === data.split("|")[1]) handleMarkAttendance();
         else toast.error("QR code does not match the active session");
     };
+
+    const handleRandomCheckConfirm = async () => {
+        if (!activeSession || !user) return;
+        setAnsweredRandomCheckAt(activeSession.randomCheckExpiresAt);
+        toast.success("Presence confirmed!");
+        
+        try {
+            const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
+            await setDoc(doc(db, "attendance", `${activeSession.id}_${user.id}`), {
+                randomCheckRespondedAt: serverTimestamp(),
+            }, { merge: true });
+        } catch(err) {
+            console.error("Failed to sync random check:", err);
+        }
+    };
+
+    const handleRandomCheckMissed = () => {
+        if (!activeSession) return;
+        setAnsweredRandomCheckAt(activeSession.randomCheckExpiresAt);
+        toast.error("You missed the random attendance check!");
+    };
+
+    const showRandomCheckModal = activeSession?.randomCheckActive && 
+                                 activeSession?.randomCheckExpiresAt > Date.now() && 
+                                 activeSession?.randomCheckExpiresAt !== answeredRandomCheckAt &&
+                                 hasMarked;
 
     const navItems: { id: Tab; label: string; icon: React.ReactNode }[] = [
         { id: "home", label: "Home", icon: <Home className="w-5 h-5" /> },
@@ -219,17 +433,32 @@ export default function StudentDashboard() {
         <div className="flex h-screen bg-[#0B1120] font-sans overflow-hidden" dir="ltr">
             {showSettings && <ProfileSettingsModal onClose={() => setShowSettings(false)} />}
             {showQRScanner && <QRScannerModal onClose={() => setShowQRScanner(false)} onScanned={handleQRScanned} />}
+            {showSelfieModal && activeSession && user && (
+                <SelfieCaptureModal 
+                    sessionId={activeSession.id} 
+                    studentId={user.id} 
+                    onCapture={handleSelfieCapture} 
+                    onCancel={() => setShowSelfieModal(false)} 
+                />
+            )}
+            {showRandomCheckModal && (
+                <RandomCheckModal 
+                    expiresAt={activeSession.randomCheckExpiresAt}
+                    onConfirm={handleRandomCheckConfirm}
+                    onMissed={handleRandomCheckMissed}
+                />
+            )}
 
             {/* Sidebar */}
-            <aside className="w-64 bg-[#111827] border-r border-slate-800 hidden md:flex flex-col justify-between">
-                <div>
-                    <div className="h-20 flex items-center px-8 border-b border-slate-800">
+            <aside className="w-64 bg-[#111827] border-r border-slate-800 hidden md:flex flex-col">
+                <div className="flex flex-col flex-1 min-h-0">
+                    <div className="h-20 flex items-center px-8 border-b border-slate-800 flex-shrink-0">
                         <div className="flex items-center gap-2">
                             <div className="bg-[#00D084] p-1.5 rounded-lg"><MapPin className="text-gray-900 w-5 h-5" /></div>
                             <span className="text-xl font-bold text-white tracking-wide">GeoAttend</span>
                         </div>
                     </div>
-                    <nav className="p-4 flex flex-col gap-1 mt-4">
+                    <nav className="p-4 flex flex-col gap-1 mt-2 overflow-y-auto flex-1">
                         {navItems.map(n => (
                             <button key={n.id} onClick={() => setTab(n.id)}
                                     className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors text-sm ${
@@ -250,7 +479,7 @@ export default function StudentDashboard() {
                         </button>
                     </nav>
                 </div>
-                <div className="p-4 border-t border-slate-800">
+                <div className="p-4 border-t border-slate-800 flex-shrink-0">
                     <button onClick={() => setShowSettings(true)}
                             className="w-full flex items-center gap-3 px-4 py-3 mb-2 rounded-xl bg-slate-800/50 hover:bg-[#00D084]/10 transition-all text-left">
                         <div className="bg-[#00D084] w-10 h-10 rounded-full flex items-center justify-center text-gray-900 font-bold shadow-[0_0_10px_rgba(0,208,132,0.4)] flex-shrink-0 text-sm">
@@ -321,22 +550,20 @@ export default function StudentDashboard() {
                                         </p>
                                     </div>
                                     {!myCourseIds.includes(activeSession.courseId) && (
-                                        <div className="px-6 py-3 bg-red-500/10 border-b border-red-500/20">
-                                            <p className="text-red-400 text-sm flex items-center gap-2">
-                                                <AlertTriangle className="w-4 h-4" />You are not enrolled in this course.</p>
+                                        <div className="px-6 py-3 bg-yellow-500/10 border-b border-yellow-500/20">
+                                            <p className="text-yellow-400 text-sm flex items-center gap-2">
+                                                <AlertTriangle className="w-4 h-4" />Note: You may not be officially enrolled in this course yet.</p>
                                         </div>
                                     )}
                                     <div className="px-6 py-5 flex flex-col sm:flex-row gap-3">
                                         {!hasMarked ? (
                                             <>
                                                 <button onClick={handleMarkAttendance}
-                                                        disabled={!myCourseIds.includes(activeSession.courseId)}
-                                                        className="flex-1 bg-[#00D084] hover:bg-[#00B070] disabled:opacity-50 disabled:cursor-not-allowed text-gray-900 font-bold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(0,208,132,0.3)]">
+                                                        className="flex-1 bg-[#00D084] hover:bg-[#00B070] text-gray-900 font-bold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(0,208,132,0.3)]">
                                                     <Radio className="w-5 h-5" />Mark Attendance
                                                 </button>
                                                 <button onClick={() => setShowQRScanner(true)}
-                                                        disabled={!myCourseIds.includes(activeSession.courseId)}
-                                                        className="flex-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 border border-slate-700 text-white font-bold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-all">
+                                                        className="flex-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-all">
                                                     <QrCode className="w-5 h-5" />Scan QR Code
                                                 </button>
                                             </>
@@ -626,7 +853,7 @@ export default function StudentDashboard() {
                                 <p className="text-slate-400 text-sm">Full record of all your sessions — present and absent.</p>
                             </div>
                             <div className="bg-[#111827] border border-slate-800 rounded-2xl p-5">
-                                <AttendanceHistoryList userId={user?.id || ""} courses={myCourses} users={users} attendanceEvents={attendanceEvents} />
+                                <AttendanceHistoryList userId={user?.id || ""} courses={myCourses} allSessions={backendSessions} attendanceHistory={attendanceHistory} />
                             </div>
                         </>
                     )}
@@ -657,7 +884,7 @@ export default function StudentDashboard() {
                                     <BarChart2 className="w-4 h-4 text-[#00D084]" />Attendance by Course
                                 </h2>
                                 <p className="text-slate-500 text-xs mb-4">Hover bars to see details</p>
-                                <AttendanceTrendChart myCourses={myCourses} userId={user?.id || ""} users={users} />
+                                <AttendanceTrendChart myCourses={myCourses} userId={user?.id || ""} allSessions={backendSessions} attendanceHistory={attendanceHistory} />
                             </div>
                             <div className="bg-[#111827] border border-slate-800 rounded-2xl p-6 mb-6">
                                 <h2 className="text-white font-semibold mb-1 flex items-center gap-2">

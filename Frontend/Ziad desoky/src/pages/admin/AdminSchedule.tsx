@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Plus, Edit3, Trash2, Calendar, X, Save, AlertTriangle, Clock, MapPin, ChevronRight } from "lucide-react";
-import AdminLayout from "./AdminLayout";
 import Breadcrumbs from "../../components/Breadcrumbs";
 import { useMockData } from "../../context/MockDataContext";
 import type { Schedule } from "../../context/MockDataContext";
@@ -160,7 +159,7 @@ export default function AdminSchedule() {
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   return (
-    <AdminLayout>
+    <>
       {(showModal || editTarget) && (
         <ScheduleModal
           schedule={editTarget}
@@ -279,6 +278,6 @@ export default function AdminSchedule() {
           </div>
         )}
       </div>
-    </AdminLayout>
+    </>
   );
 }

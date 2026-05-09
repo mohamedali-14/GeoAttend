@@ -1,92 +1,97 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Suspense, lazy } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { MockDataProvider } from "./context/MockDataContext";
 import { SocketProvider } from "./context/SocketContext";
 import { ToastProvider } from "./context/ToastContext";
 import { QuizProvider } from "./context/QuizContext";
-import Login from "./pages/auth/Login";
-import Register from "./pages/auth/Register";
-import ForgotPassword from "./pages/auth/ForgotPassword";
-import StudentDashboard from "./pages/student/StudentDashboard";
-import DoctorDashboard from "./pages/doctor/DoctorDashboard";
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import AdminUsers from "./pages/admin/AdminUsers";
-import AdminCourses from "./pages/admin/AdminCourses";
-import AdminSchedule from "./pages/admin/AdminSchedule";
-import AdminCourseEnrollment from "./pages/admin/AdminCourseEnrollment";
-import AdminLectures from "./pages/admin/AdminLectures";
-import AdminSettings from "./pages/admin/AdminSettings";
-import AdminLayout from "./pages/admin/AdminLayout";
-import LiveDashboard from "./pages/shared/LiveDashboard";
-import AdminLive from "./pages/admin/AdminLive";
-import AdminSessionHistory from "./pages/admin/AdminSessionHistory";
-import AttendanceView from "./pages/shared/AttendanceView";
-import AdminQuizzesPage from "./pages/admin/AdminQuizzesPage";
-import QuizPage from "./pages/QuizPage";
-import QuizResultsPage from "./pages/QuizResultsPage";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { PageSkeleton } from "./components/Skeleton";
+
+// Lazy-loaded pages for better performance
+const Login            = lazy(() => import("./pages/auth/Login"));
+const Register         = lazy(() => import("./pages/auth/Register"));
+const ForgotPassword   = lazy(() => import("./pages/auth/ForgotPassword"));
+const StudentDashboard = lazy(() => import("./pages/student/StudentDashboard"));
+const DoctorDashboard  = lazy(() => import("./pages/doctor/DoctorDashboard"));
+const AdminDashboard   = lazy(() => import("./pages/admin/AdminDashboard"));
+const AdminUsers       = lazy(() => import("./pages/admin/AdminUsers"));
+const AdminCourses     = lazy(() => import("./pages/admin/AdminCourses"));
+const AdminSchedule    = lazy(() => import("./pages/admin/AdminSchedule"));
+const AdminCourseEnrollment = lazy(() => import("./pages/admin/AdminCourseEnrollment"));
+const AdminEnrollmentHub    = lazy(() => import("./pages/admin/AdminEnrollmentHub"));
+const AdminLectures    = lazy(() => import("./pages/admin/AdminLectures"));
+const AdminSettings    = lazy(() => import("./pages/admin/AdminSettings"));
+const AdminLayout      = lazy(() => import("./pages/admin/AdminLayout"));
+const LiveDashboard    = lazy(() => import("./pages/shared/LiveDashboard"));
+const AdminLive        = lazy(() => import("./pages/admin/AdminLive"));
+const AdminSessionHistory = lazy(() => import("./pages/admin/AdminSessionHistory"));
+const AttendanceView   = lazy(() => import("./pages/shared/AttendanceView"));
+const AdminQuizzesPage = lazy(() => import("./pages/admin/AdminQuizzesPage"));
+const QuizPage         = lazy(() => import("./pages/QuizPage"));
+const QuizResultsPage  = lazy(() => import("./pages/QuizResultsPage"));
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
-  const { user, isLoading, isAuthenticated } = useAuth();
-  if (isLoading) return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0B1120]">
-      <div className="w-8 h-8 border-2 border-[#00D084] border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
-  if (!isAuthenticated) return <Navigate to="/" replace />;
-  if (!allowedRoles.includes(user!.role)) return <Navigate to="/" replace />;
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <PageSkeleton />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!allowedRoles.includes(user.role)) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
-const A = ({ children }: { children: React.ReactNode }) => (
-  <ProtectedRoute allowedRoles={["ADMIN"]}>{children}</ProtectedRoute>
-);
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  return <ProtectedRoute allowedRoles={["ADMIN"]}>{children}</ProtectedRoute>;
+}
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/"                element={<Login />} />
-      <Route path="/register"        element={<Register />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
-
-      <Route path="/student" element={<ProtectedRoute allowedRoles={["STUDENT"]}><StudentDashboard /></ProtectedRoute>} />
-      <Route path="/doctor"  element={<ProtectedRoute allowedRoles={["DOCTOR"]}><DoctorDashboard /></ProtectedRoute>} />
-
-      <Route path="/admin"                              element={<A><AdminDashboard /></A>} />
-      <Route path="/admin/users"                        element={<A><AdminUsers /></A>} />
-      <Route path="/admin/courses"                      element={<A><AdminCourses /></A>} />
-      <Route path="/admin/course-enrollment" element={<A><AdminCourseEnrollment /></A>} />
-      <Route path="/admin/courses/:courseId/enrollment" element={<A><AdminCourseEnrollment /></A>} />
-      <Route path="/admin/schedule"                     element={<A><AdminSchedule /></A>} />
-      
-      <Route path="/admin/settings"                     element={<A><AdminSettings /></A>} />
-      <Route path="/admin/live"                         element={<A><AdminLayout><AdminLive /></AdminLayout></A>} />
-      <Route path="/admin/sessions"                     element={<A><AdminLayout><AdminSessionHistory /></AdminLayout></A>} />
-      <Route path="/admin/attendance"                   element={<A><AdminLayout><AttendanceView /></AdminLayout></A>} />
-      <Route path="/admin/quizzes"                      element={<A><AdminQuizzesPage /></A>} />
-
-      <Route path="/quiz"            element={<ProtectedRoute allowedRoles={["STUDENT"]}><QuizPage /></ProtectedRoute>} />
-      <Route path="/quiz/:sessionId" element={<ProtectedRoute allowedRoles={["STUDENT"]}><QuizPage /></ProtectedRoute>} />
-      <Route path="/quiz/results"    element={<ProtectedRoute allowedRoles={["STUDENT"]}><QuizResultsPage /></ProtectedRoute>} />
-
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <Suspense fallback={<PageSkeleton />}>
+      <Routes>
+        <Route path="/login"           element={<Login />} />
+        <Route path="/register"        element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/student"  element={<ProtectedRoute allowedRoles={["STUDENT"]}><StudentDashboard /></ProtectedRoute>} />
+        <Route path="/doctor"   element={<ProtectedRoute allowedRoles={["DOCTOR"]}><DoctorDashboard /></ProtectedRoute>} />
+        <Route path="/live"     element={<ProtectedRoute allowedRoles={["STUDENT","DOCTOR","ADMIN"]}><LiveDashboard /></ProtectedRoute>} />
+        <Route path="/attend"   element={<ProtectedRoute allowedRoles={["STUDENT"]}><AttendanceView /></ProtectedRoute>} />
+        <Route path="/quiz"           element={<ProtectedRoute allowedRoles={["STUDENT"]}><QuizPage /></ProtectedRoute>} />
+        <Route path="/quiz/results"    element={<ProtectedRoute allowedRoles={["STUDENT"]}><QuizResultsPage /></ProtectedRoute>} />
+        <Route path="/quiz/:sessionId" element={<ProtectedRoute allowedRoles={["STUDENT"]}><QuizPage /></ProtectedRoute>} />
+        <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
+          <Route index         element={<AdminDashboard />} />
+          <Route path="users"       element={<AdminUsers />} />
+          <Route path="courses"     element={<AdminCourses />} />
+          <Route path="schedule"    element={<AdminSchedule />} />
+          <Route path="enrollment"  element={<AdminEnrollmentHub />} />
+          <Route path="courses/:courseId/enrollment" element={<AdminCourseEnrollment />} />
+          <Route path="lectures"    element={<AdminLectures />} />
+          <Route path="live"        element={<AdminLive />} />
+          <Route path="sessions"    element={<AdminSessionHistory />} />
+          <Route path="quizzes"     element={<AdminQuizzesPage />} />
+          <Route path="settings"    element={<AdminSettings />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <MockDataProvider>
-          <QuizProvider>
-          <SocketProvider>
-            <ToastProvider>
-              <AppRoutes />
-            </ToastProvider>
-          </SocketProvider>
-          </QuizProvider>
-        </MockDataProvider>
-      </AuthProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          <MockDataProvider>
+            <SocketProvider>
+              <ToastProvider>
+                <QuizProvider>
+                  <AppRoutes />
+                </QuizProvider>
+              </ToastProvider>
+            </SocketProvider>
+          </MockDataProvider>
+        </AuthProvider>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

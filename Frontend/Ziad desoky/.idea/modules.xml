@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/GeoAttend-fixed.iml" filepath="$PROJECT_DIR$/.idea/GeoAttend-fixed.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/frontend_output.iml" filepath="$PROJECT_DIR$/.idea/frontend_output.iml" />
     </modules>
   </component>
 </project>

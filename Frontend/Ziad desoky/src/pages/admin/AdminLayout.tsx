@@ -1,17 +1,16 @@
 import { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import {
   MapPin, LayoutDashboard, Users, BookOpen, Shield, LogOut,
   Menu, X, ChevronRight, Settings, GraduationCap, Calendar, Radio, History, FileQuestion
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import type { ReactNode } from "react";
 
 const NAV = [
   { path: "/admin",                  label: "Dashboard",   icon: LayoutDashboard },
   { path: "/admin/users",            label: "Users",       icon: Users           },
   { path: "/admin/courses",          label: "Courses",     icon: GraduationCap   },
-  { path: "/admin/course-enrollment",label: "Enrollment",  icon: Users           },
+  { path: "/admin/enrollment",          label: "Enrollment",  icon: Users           },
   { path: "/admin/schedule",         label: "Schedule",    icon: Calendar        },
   { path: "/admin/live",             label: "Live",        icon: Radio           },
   { path: "/admin/sessions",          label: "Sessions",    icon: History         },
@@ -91,7 +90,7 @@ function SidebarContent({ user, isActive, navigate, setSidebarOpen, handleLogout
   );
 }
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
+export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
@@ -133,7 +132,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               <X className="w-5 h-5" />
             </button>
           </div>
-          <main className="flex-1 overflow-y-auto">{children}</main>
+          <main className="flex-1 overflow-y-auto"><Outlet /></main>
         </div>
       </div>
   );

@@ -3,13 +3,21 @@ import {
   Users, BookOpen, Shield, Activity, AlertTriangle,
   GraduationCap, Calendar, UserCheck, ChevronRight
 } from "lucide-react";
-import AdminLayout from "./AdminLayout";
 import Breadcrumbs from "../../components/Breadcrumbs";
 import { useMockData } from "../../context/MockDataContext";
+import { apiGetQuickStats, apiGetRealtimeDashboard } from "../../services/api";
+import { useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 
 export default function AdminDashboard() {
   const { users, lectures, courses, schedules, enrollments } = useMockData();
+  const [backendStats, setBackendStats] = useState<any>(null);
+
+  useEffect(() => {
+    apiGetQuickStats()
+      .then(data => setBackendStats(data?.data || data))
+      .catch(() => {});
+  }, []);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -35,7 +43,7 @@ export default function AdminDashboard() {
   const recentUsers    = users.slice(0, 4);
 
   return (
-    <AdminLayout>
+
       <div className="p-6 md:p-10 max-w-7xl mx-auto">
 
         {/* Header */}
@@ -140,6 +148,6 @@ export default function AdminDashboard() {
 
         </div>
       </div>
-    </AdminLayout>
+
   );
 }

@@ -32,54 +32,53 @@ function PdfImportModal({ onImport, onClose }: {
     setErrorMsg("");
 
     try {
-      // Convert PDF to base64
-      const base64 = await new Promise<string>((res, rej) => {
-        const reader = new FileReader();
-        reader.onload = () => res((reader.result as string).split(",")[1]);
-        reader.onerror = () => rej(new Error("Failed to read file"));
-        reader.readAsDataURL(file);
+      // Send PDF to backend — AI call is handled server-side (no CORS issues)
+      const formData = new FormData();
+      formData.append("pdf", file);
+      formData.append("count", "5");
+
+      let token = localStorage.getItem("geo_token") || sessionStorage.getItem("geo_token") || "";
+      const apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+
+      let response = await fetch(`${apiBase}/ai/generate-quiz`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
       });
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 2000,
-          messages: [{
-            role: "user",
-            content: [
-              {
-                type: "document",
-                source: { type: "base64", media_type: "application/pdf", data: base64 }
-              },
-              {
-                type: "text",
-                text: `Extract multiple choice questions from this PDF. Return ONLY a valid JSON array with NO extra text, NO markdown, NO backticks.
-Format: [{"text":"question text","options":["A","B","C","D"],"correct":"correct option text","points":25}]
-Rules:
-- Extract all MCQ questions you find (up to 10)
-- Each question needs exactly 4 options
-- "correct" must be the exact text of the correct option
-- If you can't find clear MCQs, generate 4 relevant MCQs from the content
-- points should be 25 for each question
-Return ONLY the JSON array.`
-              }
-            ]
-          }]
-        })
-      });
+      // If token expired, try to refresh
+      if (response.status === 401) {
+        const refreshToken = localStorage.getItem("geo_refresh_token");
+        const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+        if (refreshToken && apiKey) {
+          const refreshRes = await fetch(
+            `https://securetoken.googleapis.com/v1/token?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ grant_type: "refresh_token", refresh_token: refreshToken }),
+            }
+          );
+          const refreshData = await refreshRes.json();
+          if (refreshData.id_token) {
+            token = refreshData.id_token;
+            localStorage.setItem("geo_token", token);
+            sessionStorage.setItem("geo_token", token);
+            // Retry with new token
+            response = await fetch(`${apiBase}/ai/generate-quiz`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+              body: formData,
+            });
+          }
+        }
+      }
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error?.message || "API error");
+      if (!response.ok) throw new Error(data.error || "Failed to generate quiz");
 
-      const text = data.content?.find((c: any) => c.type === "text")?.text || "";
-      // Strip any accidental markdown
-      const clean = text.replace(/```json|```/gi, "").trim();
-      const parsed: any[] = JSON.parse(clean);
-
-      const questions: QuizQuestion[] = parsed.map((q: any, i: number) => ({
-        id: "PDF_Q_" + Date.now() + "_" + i,
+      const questions: QuizQuestion[] = (data.questions || []).map((q: any, i: number) => ({
+        id: q.id || "PDF_Q_" + Date.now() + "_" + i,
         text: q.text || q.question || "",
         options: q.options || ["", "", "", ""],
         correct: q.correct || q.answer || "",

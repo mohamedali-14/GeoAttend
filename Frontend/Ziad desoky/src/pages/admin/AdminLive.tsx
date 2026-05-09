@@ -3,7 +3,7 @@
  * Layout: Header → Stats Bar → Active Sessions (full cards) → Split: Feed + Session Log
  * Features: search feed, live attendance %, kick, end/cancel, filter by course/doctor/status
  */
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Radio, Users, CheckCircle, Navigation, Trash2, PlayCircle,
   StopCircle, UserX, X, MapPin, Clock, AlertTriangle, UserCheck,
@@ -14,6 +14,8 @@ import { useAuth } from "../../context/AuthContext";
 import { useMockData } from "../../context/MockDataContext";
 import ConnectionStatus from "../../components/ConnectionStatus";
 import { useToast } from "../../context/ToastContext";
+import { db } from "../../firebase";
+import { collection, query, onSnapshot } from "firebase/firestore";
 
 /* ─────────────────────────── helpers ──────────────────────────────────── */
 function timeAgo(iso: string) {
@@ -289,27 +291,65 @@ export default function AdminLive() {
     localStorage.setItem("geo_admin_sessions", JSON.stringify(adminSessions));
   }, [adminSessions]);
 
-  // All active sessions (admin + doctor)
-  const [allActive, setAllActive] = useState<AdminSession[]>([]);
+  // Real-time synchronization using Firestore (Direct linking like Omar Shabaan)
+  const [firestoreActive, setFirestoreActive] = useState<AdminSession[]>([]);
   useEffect(() => {
-    const load = () => {
-      const active: AdminSession[] = adminSessions.filter(s => s.isActive);
-      const raw = localStorage.getItem("geo_active_session");
-      if (raw) {
-        try {
-          const ds = JSON.parse(raw);
-          if (!active.find(s => s.id === ds.id)) {
-            const course = courses.find(c => c.id === ds.courseId);
-            active.push({ id: ds.id, courseId: ds.courseId, courseName: ds.courseName, courseCode: ds.courseCode || course?.code || "", doctorId: course?.doctorId || "", startTime: ds.startTime, isActive: true, geoEnabled: ds.geoEnabled, centerLat: ds.centerLat, centerLng: ds.centerLng, radiusMeters: ds.radiusMeters });
-          }
-        } catch { }
-      }
-      setAllActive(active);
-    };
-    load();
-    window.addEventListener("storage", load);
-    return () => window.removeEventListener("storage", load);
-  }, [adminSessions, courses]);
+    const q = query(collection(db, "sessions"));
+    const unsub = onSnapshot(q, (snap) => {
+        let zombies: string[] = [];
+        try { zombies = JSON.parse(localStorage.getItem("geo_zombie_sessions") || "[]"); } catch {}
+
+        const active = snap.docs.map(d => {
+            const data = d.data();
+            const course = courses.find(c => c.id === data.courseId);
+            const isZombie = zombies.includes(d.id);
+            return {
+                id: d.id,
+                courseId: data.courseId,
+                courseName: data.courseName || course?.name || "Lecture",
+                courseCode: data.courseCode || course?.code || "",
+                doctorId: data.professorId || data.doctorId || course?.doctorId || "",
+                startTime: data.startTime || data.createdAt || new Date().toISOString(),
+                endTime: data.endTime,
+                isActive: isZombie ? false : (data.status === "ACTIVE" || data.isActive),
+                geoEnabled: data.geoEnabled || false,
+                centerLat: data.centerLat,
+                centerLng: data.centerLng,
+                radiusMeters: data.radiusMeters || 50,
+                startedByAdmin: data.startedByAdmin || d.id.startsWith("ADMIN_")
+            } as AdminSession;
+        }).filter(s => s.isActive);
+        setFirestoreActive(active);
+    });
+    return () => unsub();
+  }, [courses]);
+
+  // Track locally ended sessions so Firestore doesn't revert them
+  const forceEndedRef = useRef<Set<string>>(new Set());
+
+  // Combine local admin sessions with firestore sessions (Offline Quota Fallback)
+  const allActive = useMemo(() => {
+    const activeAdmin = adminSessions.filter(s => s.isActive);
+    const combined = [...firestoreActive];
+    activeAdmin.forEach(a => {
+        if (!combined.find(c => c.id === a.id)) combined.push(a);
+    });
+    
+    // Also check local storage geo_active_session just in case a doctor started it and firestore failed
+    try {
+        const raw = localStorage.getItem("geo_active_session");
+        if (raw) {
+            const ls = JSON.parse(raw);
+            if (!combined.find(c => c.id === ls.id)) combined.push({...ls, isActive: true} as any);
+        }
+    } catch {}
+    
+    return combined.filter(c => {
+      let isZombie = false;
+      try { isZombie = JSON.parse(localStorage.getItem("geo_zombie_sessions") || "[]").includes(c.id); } catch {}
+      return !forceEndedRef.current.has(c.id) && !isZombie;
+    });
+  }, [firestoreActive, adminSessions]);
 
   const doctors = users.filter(u => u.role === "DOCTOR");
 
@@ -379,8 +419,19 @@ export default function AdminLive() {
   };
 
   const handleEnd = (session: AdminSession) => {
+    forceEndedRef.current.add(session.id);
+    try {
+      const zombies = JSON.parse(localStorage.getItem("geo_zombie_sessions") || "[]");
+      if (!zombies.includes(session.id)) zombies.push(session.id);
+      localStorage.setItem("geo_zombie_sessions", JSON.stringify(zombies));
+    } catch {}
     const endTime = new Date().toISOString();
     setAdminSessions(p => p.map(s => s.id === session.id ? { ...s, isActive: false, endTime } : s));
+
+    // Try to end on backend
+    import("../../services/api").then(api => {
+      api.apiEndSession(session.id).catch(() => {});
+    }).catch(() => {});
 
     // Remove from active session
     const raw = localStorage.getItem("geo_active_session");
@@ -408,8 +459,19 @@ export default function AdminLive() {
   };
 
   const handleCancel = (session: AdminSession) => {
+    forceEndedRef.current.add(session.id);
+    try {
+      const zombies = JSON.parse(localStorage.getItem("geo_zombie_sessions") || "[]");
+      if (!zombies.includes(session.id)) zombies.push(session.id);
+      localStorage.setItem("geo_zombie_sessions", JSON.stringify(zombies));
+    } catch {}
     const endTime = new Date().toISOString();
     setAdminSessions(p => p.map(s => s.id === session.id ? { ...s, isActive: false, endTime } : s));
+
+    // Try to end on backend
+    import("../../services/api").then(api => {
+      api.apiEndSession(session.id).catch(() => {});
+    }).catch(() => {});
 
     // Remove from active session
     const raw = localStorage.getItem("geo_active_session");

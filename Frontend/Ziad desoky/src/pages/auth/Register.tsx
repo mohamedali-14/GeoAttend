@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { MapPin, Eye, EyeOff, AlertCircle, Loader2 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import type { UserRole } from "../../context/AuthContext";
-import { apiLogin } from "../../services/api";
+import { apiLogin, apiRegister } from "../../services/api";
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
@@ -20,35 +20,37 @@ export default function Register() {
   });
 
 
- const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
     if (form.password.length < 6) { setError("Password must be at least 6 characters"); return; }
 
-    const allUsers = JSON.parse(localStorage.getItem("geo_all_users") || "[]");
-    if (allUsers.find((u: any) => u.email === form.email)) {
-      setError("Email already in use"); return;
+    setLoading(true);
+    try {
+      await apiRegister({
+        email: form.email,
+        password: form.password,
+        fullName: `${form.firstName} ${form.lastName}`.trim(),
+        role: role,
+        department: form.department,
+        studentId: form.studentID,
+      });
+
+      // Auto login after register
+      try {
+        const data = await apiLogin(form.email, form.password);
+        login(data.user as any);
+        if (data.user.role === "DOCTOR") navigate("/doctor");
+        else navigate("/student");
+      } catch (loginErr: any) {
+        setError("Account created, but login failed: " + (loginErr.message || ""));
+      }
+    } catch (err: any) {
+      setError(err.message || "Registration failed");
+    } finally {
+      setLoading(false);
     }
-
-    const newUser = {
-      id: Date.now().toString(),
-      firstName: form.firstName,
-      lastName: form.lastName,
-      email: form.email,
-      password: form.password,
-      role: role,
-      department: form.department,
-      studentID: form.studentID,
-      isBanned: false,
-    };
-
-    allUsers.push(newUser);
-    localStorage.setItem("geo_all_users", JSON.stringify(allUsers));
-    login(newUser);
-
-    if (role === "DOCTOR") navigate("/doctor");
-    else navigate("/student");
   };
 
   return (

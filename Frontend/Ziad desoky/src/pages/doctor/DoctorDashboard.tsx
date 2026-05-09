@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { db } from "../../firebase";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
 import {
   LogOut, MapPin, Settings, UserCircle, BookOpen, Calendar,
   Plus, Edit3, Save, AlertTriangle, ChevronRight, Search,
   X, Trash2, PlayCircle, StopCircle, Radio, ClipboardList,
-  Navigation, CheckCircle, Clock, Users, QrCode, FileQuestion
+  Navigation, CheckCircle, Clock, Users, QrCode, FileQuestion, BarChart2, Shuffle, Camera
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useMockData, type Course, type Schedule } from "../../context/MockDataContext";
@@ -15,6 +17,9 @@ import AttendanceView from "../shared/AttendanceView";
 import DoctorSessionHistory from "./DoctorSessionHistory";
 import DoctorLiveDashboard from "./DoctorLiveDashboard";
 import DoctorQuizPanel from "./DoctorQuizPanel";
+import DoctorAttendanceReport from "./DoctorAttendanceReport";
+import DoctorAnalytics from "./DoctorAnalytics";
+import DoctorMaterials from "./DoctorMaterials";
 import ConnectionStatus from "../../components/ConnectionStatus";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -23,6 +28,7 @@ interface Session {
   startTime: string; endTime?: string; isActive: boolean;
   geoEnabled: boolean; centerLat: number | null; centerLng: number | null;
   radiusMeters: number; attendees: AttendanceEvent[];
+  randomCheckEnabled?: boolean; selfieEnabled?: boolean;
 }
 
 const DAYS = ["Saturday","Sunday","Monday","Tuesday","Wednesday","Thursday"] as const;
@@ -178,12 +184,14 @@ function SessionStudentsModal({ session, onClose }: { session: Session; onClose:
 // ── Start Session Modal ───────────────────────────────────────────────────────
 function StartSessionModal({ courses, enrollments, onStart, onClose }: {
   courses: Course[]; enrollments: {courseId:string;studentId:string}[];
-  onStart: (d:{courseId:string;geoEnabled:boolean;radiusMeters:number;lat:number|null;lng:number|null})=>void;
+  onStart: (d:{courseId:string;geoEnabled:boolean;radiusMeters:number;lat:number|null;lng:number|null;randomCheckEnabled:boolean;selfieEnabled:boolean})=>void;
   onClose: ()=>void;
 }) {
   const [sel, setSel]     = useState(courses[0]?.id || "");
   const [geo, setGeo]     = useState(false);
   const [radius, setR]    = useState("50");
+  const [randomCheck, setRandomCheck] = useState(false);
+  const [selfie, setSelfie]           = useState(false);
   const [fetching, setF]  = useState(false);
   const [coords, setC]    = useState<{lat:number;lng:number}|null>(null);
   const [geoErr, setGE]   = useState("");
@@ -203,7 +211,7 @@ function StartSessionModal({ courses, enrollments, onStart, onClose }: {
     if (!sel) { toast.error("Select a course"); return; }
     if (enrolled===0) { toast.error("No students enrolled in this course!"); return; }
     if (geo && !coords) { toast.error("Capture location first"); return; }
-    onStart({courseId:sel,geoEnabled:geo,radiusMeters:parseInt(radius)||50,lat:coords?.lat??null,lng:coords?.lng??null});
+    onStart({courseId:sel,geoEnabled:geo,radiusMeters:parseInt(radius)||50,lat:coords?.lat??null,lng:coords?.lng??null,randomCheckEnabled:randomCheck,selfieEnabled:selfie});
   };
 
   return (
@@ -232,25 +240,47 @@ function StartSessionModal({ courses, enrollments, onStart, onClose }: {
               <p className="text-red-400 text-xs mt-2 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/>No students enrolled — Admin must enroll them first</p>
             )}
           </div>
-          <div className="bg-[#1E293B] border border-slate-700 rounded-xl p-4">
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-2"><Navigation className="w-4 h-4 text-[#00D084]"/><span className="text-white font-medium text-sm">Geo-Attendance</span></div>
-              <button onClick={()=>{setGeo(v=>!v);setC(null);setGE("");}} className={`relative w-11 h-6 rounded-full transition-colors ${geo?"bg-[#00D084]":"bg-slate-600"}`}>
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${geo?"translate-x-6":"translate-x-1"}`}/>
-              </button>
-            </div>
-            <p className="text-slate-400 text-xs">Students must be within radius to attend</p>
-            {geo && (
-              <div className="mt-3 flex flex-col gap-3">
-                <div><label className={lbl}>Radius (meters)</label><input type="number" value={radius} onChange={e=>setR(e.target.value)} className={inp} min="10" max="500"/></div>
-                <button onClick={capture} disabled={fetching}
-                  className="w-full py-2.5 bg-[#00D084]/10 hover:bg-[#00D084]/20 border border-[#00D084]/30 text-[#00D084] font-semibold rounded-lg flex items-center justify-center gap-2 text-sm disabled:opacity-60">
-                  <MapPin className="w-4 h-4"/>{fetching?"Getting...":coords?"✓ Captured — Re-capture":"Capture My Location"}
+
+          <div className="flex flex-col gap-3">
+            <div className="bg-[#1E293B] border border-slate-700 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2"><Navigation className="w-4 h-4 text-[#00D084]"/><span className="text-white font-medium text-sm">Geo-Attendance</span></div>
+                <button onClick={()=>{setGeo(v=>!v);setC(null);setGE("");}} className={`relative w-11 h-6 rounded-full transition-colors ${geo?"bg-[#00D084]":"bg-slate-600"}`}>
+                  <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${geo?"translate-x-6":"translate-x-1"}`}/>
                 </button>
-                {coords && <p className="text-xs text-slate-500 text-center">{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</p>}
-                {geoErr && <p className="text-xs text-red-400">{geoErr}</p>}
               </div>
-            )}
+              <p className="text-slate-400 text-xs">Students must be within radius to attend</p>
+              {geo && (
+                <div className="mt-3 flex flex-col gap-3">
+                  <div><label className={lbl}>Radius (meters)</label><input type="number" value={radius} onChange={e=>setR(e.target.value)} className={inp} min="10" max="500"/></div>
+                  <button onClick={capture} disabled={fetching} className="py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700 flex items-center justify-center gap-2 text-sm font-medium">
+                    {fetching?<span className="animate-spin w-4 h-4 border-2 border-white/20 border-t-white rounded-full"/>:<MapPin className="w-4 h-4"/>}
+                    {coords?`Captured: ${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`:"Capture Current Location"}
+                  </button>
+                  {geoErr&&<p className="text-red-400 text-xs">{geoErr}</p>}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-[#1E293B] border border-slate-700 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2"><Shuffle className="w-4 h-4 text-purple-400"/><span className="text-white font-medium text-sm">Random Check</span></div>
+                <button onClick={()=>setRandomCheck(v=>!v)} className={`relative w-11 h-6 rounded-full transition-colors ${randomCheck?"bg-purple-500":"bg-slate-600"}`}>
+                  <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${randomCheck?"translate-x-6":"translate-x-1"}`}/>
+                </button>
+              </div>
+              <p className="text-slate-400 text-xs">Allow sending spontaneous presence checks</p>
+            </div>
+
+            <div className="bg-[#1E293B] border border-slate-700 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2"><Camera className="w-4 h-4 text-orange-400"/><span className="text-white font-medium text-sm">Selfie Verification</span></div>
+                <button onClick={()=>setSelfie(v=>!v)} className={`relative w-11 h-6 rounded-full transition-colors ${selfie?"bg-orange-500":"bg-slate-600"}`}>
+                  <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${selfie?"translate-x-6":"translate-x-1"}`}/>
+                </button>
+              </div>
+              <p className="text-slate-400 text-xs">Require photo verification upon check-in</p>
+            </div>
           </div>
         </div>
         <div className="flex gap-3 px-6 py-4 border-t border-slate-800">
@@ -366,8 +396,9 @@ function ScheduleModal({ schedule, defaultDay, myCourses, onSave, onClose }: {
 }
 
 // ── Live Session Card ─────────────────────────────────────────────────────────
-function LiveSessionCard({ session, onEnd, onShowQR, onViewStudents }: {
+function LiveSessionCard({ session, onEnd, onShowQR, onViewStudents, onTriggerRandomCheck }: {
   session:Session; onEnd:(id:string)=>void; onShowQR:(s:Session)=>void; onViewStudents:(s:Session)=>void;
+  onTriggerRandomCheck?: (id:string)=>void;
 }) {
   const [e_, setE] = useState(elapsed(session.startTime));
   useEffect(() => { const iv=setInterval(()=>setE(elapsed(session.startTime)),1000); return ()=>clearInterval(iv); },[session.startTime]);
@@ -385,6 +416,9 @@ function LiveSessionCard({ session, onEnd, onShowQR, onViewStudents }: {
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-mono text-[#00D084] text-sm bg-[#00D084]/10 border border-[#00D084]/20 px-3 py-1 rounded-full">{e_}</span>
           {session.geoEnabled && <span className="text-xs text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-1 rounded-full flex items-center gap-1"><Navigation className="w-3 h-3"/>{session.radiusMeters}m</span>}
+          {session.randomCheckEnabled && (
+             <button onClick={()=>onTriggerRandomCheck?.(session.id)} className="px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-400 rounded-lg text-sm flex items-center gap-1.5"><Radio className="w-4 h-4"/>Check</button>
+          )}
           <button onClick={()=>onShowQR(session)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white rounded-lg text-sm flex items-center gap-1.5"><QrCode className="w-4 h-4"/>QR</button>
           <button onClick={()=>onViewStudents(session)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-lg text-sm flex items-center gap-1.5"><Users className="w-4 h-4"/>{session.attendees.length}</button>
           <button onClick={()=>onEnd(session.id)} className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg text-sm flex items-center gap-1.5"><StopCircle className="w-4 h-4"/>End</button>
@@ -406,7 +440,7 @@ function LiveSessionCard({ session, onEnd, onShowQR, onViewStudents }: {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-type Tab = "sessions"|"courses"|"schedule"|"attendance"|"live"|"quizzes";
+type Tab = "sessions"|"courses"|"schedule"|"attendance"|"live"|"quizzes"|"report"|"analytics"|"materials";
 
 export default function DoctorDashboard() {
   const navigate = useNavigate();
@@ -430,44 +464,94 @@ export default function DoctorDashboard() {
   const mySchedules  = schedules.filter(s=>myCourses.some(c=>c.id===s.courseId));
   const daySchedules = mySchedules.filter(s=>s.day===activeDay).sort((a,b)=>a.startTime.localeCompare(b.startTime));
 
-  const [sessions, setSessions] = useState<Session[]>(()=>{
-    try{return JSON.parse(localStorage.getItem("geo_sessions_"+(user?.id||""))||"[]");}catch{return [];}
-  });
-  useEffect(()=>{localStorage.setItem("geo_sessions_"+(user?.id||""),JSON.stringify(sessions));},[sessions,user?.id]);
+  // Real-time synchronization using Firestore (Direct linking like Omar Shabaan)
+  const [sessions, setSessions] = useState<Session[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, "sessions"), where("professorId", "==", user.id));
+    const unsub = onSnapshot(q, (snap) => {
+        const arr = snap.docs.map(d => {
+            const data = d.data();
+            return {
+                id: d.id,
+                courseId: data.courseId,
+                courseName: data.courseName || "",
+                courseCode: data.courseCode || "",
+                startTime: data.startTime || data.createdAt || new Date().toISOString(),
+                endTime: data.endTime,
+                isActive: data.status === "ACTIVE" || data.isActive,
+                geoEnabled: data.geoEnabled || false,
+                centerLat: data.centerLat,
+                centerLng: data.centerLng,
+                radiusMeters: data.radiusMeters || 50,
+                randomCheckEnabled: data.randomCheckEnabled || false,
+                selfieEnabled: data.selfieEnabled || false,
+                attendees: [] // We'll handle attendees separately or via subcollection if needed
+            } as Session;
+        });
+        setSessions(arr.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()));
+    });
+    return () => unsub();
+  }, [user]);
 
-  // Real-time attendance — update status on join, leave, kick
-  useEffect(()=>{
-    if(!attendanceEvents.length)return;
-    const latest=attendanceEvents[0];
-    setSessions(prev=>prev.map(s=>{
-      if(s.id!==latest.sessionId||!s.isActive)return s;
-      const exists = s.attendees.some(a=>a.studentId===latest.studentId);
-      if(!exists){
-        // New join
-        toast.info(`${latest.studentName} joined`);
-        return{...s,attendees:[...s.attendees,{...latest,status:"present"}]};
-      } else {
-        // Update existing (leave / kick / status change)
-        const updatedAttendees = s.attendees.map(a=>
-          a.studentId===latest.studentId
-            ? {...a, status: latest.status, leftAt: latest.leftAt}
-            : a
-        );
-        if(latest.status==="left") toast.warning(`${latest.studentName} left the session`);
-        if(latest.status==="kicked") toast.error(`${latest.studentName} was kicked`);
-        return{...s,attendees:updatedAttendees};
-      }
-    }));
-  },[attendanceEvents]);
+  // Sync attendees for the active sessions
+  useEffect(() => {
+    if (!sessions.length) return;
+    const activeSessions = sessions.filter(s => s.isActive);
+    if (!activeSessions.length) return;
 
-  const handleStart=({courseId,geoEnabled,radiusMeters,lat,lng}:{courseId:string;geoEnabled:boolean;radiusMeters:number;lat:number|null;lng:number|null})=>{
+    const unsubs = activeSessions.map(s => {
+        const attQ = query(collection(db, "attendance"), where("sessionId", "==", s.id));
+        return onSnapshot(attQ, (snap) => {
+            const attendees = snap.docs.map(d => ({
+                sessionId: s.id,
+                studentId: d.data().studentId,
+                studentName: d.data().studentName || "Student",
+                courseId: s.courseId,
+                timestamp: d.data().timestamp || new Date().toISOString(),
+                geoStatus: d.data().geoStatus,
+                status: d.data().status || "present",
+                leftAt: d.data().leftAt,
+            } as AttendanceEvent));
+            
+            setSessions(prev => prev.map(p => p.id === s.id ? { ...p, attendees } : p));
+        });
+    });
+
+    return () => unsubs.forEach(unsub => unsub());
+  }, [sessions.filter(s => s.isActive).map(s => s.id).join(",")]);
+
+  const handleStart=({courseId,geoEnabled,radiusMeters,lat,lng,randomCheckEnabled,selfieEnabled}:{courseId:string;geoEnabled:boolean;radiusMeters:number;lat:number|null;lng:number|null;randomCheckEnabled:boolean;selfieEnabled:boolean})=>{
     const course=myCourses.find(c=>c.id===courseId);if(!course)return;
-    const s:Session={id:Math.random().toString(36).slice(2),courseId,courseName:course.name,courseCode:course.code,
-      startTime:new Date().toISOString(),isActive:true,geoEnabled,centerLat:lat,centerLng:lng,radiusMeters,attendees:[]};
+    const sessionId = Math.random().toString(36).slice(2);
+    const startTime = new Date().toISOString();
+    const s:Session={id:sessionId,courseId,courseName:course.name,courseCode:course.code,
+      startTime,isActive:true,geoEnabled,centerLat:lat,centerLng:lng,radiusMeters,randomCheckEnabled,selfieEnabled,attendees:[]};
     setSessions(p=>[s,...p]);setStart(false);
-    emitSession({sessionId:s.id,courseId,courseName:course.name,action:"started",timestamp:s.startTime});
-    localStorage.setItem("geo_active_session",JSON.stringify({id:s.id,courseId,courseName:course.name,courseCode:course.code,
-      geoEnabled,centerLat:lat,centerLng:lng,radiusMeters,startTime:s.startTime}));
+    // Write DIRECTLY to Firestore immediately for real-time student sync
+    import("firebase/firestore").then(({ doc, setDoc, serverTimestamp }) => {
+      setDoc(doc(db, "sessions", sessionId), {
+        id: sessionId,
+        courseId,
+        courseName: course.name,
+        courseCode: course.code,
+        professorId: user?.id,
+        status: "ACTIVE",
+        isActive: true,
+        startTime,
+        geoEnabled,
+        centerLat: lat,
+        centerLng: lng,
+        radiusMeters,
+        randomCheckEnabled,
+        selfieEnabled,
+        attendees: [],
+        updatedAt: serverTimestamp(),
+      }).catch(err => console.error("Firestore session write error:", err));
+    });
+    emitSession({sessionId,courseId,courseName:course.name,action:"started",timestamp:startTime,doctorId:user?.id,geoEnabled,centerLat:lat,centerLng:lng,radiusMeters,randomCheckEnabled,selfieEnabled});
+    localStorage.setItem("geo_active_session",JSON.stringify({id:sessionId,courseId,courseName:course.name,courseCode:course.code,
+      geoEnabled,centerLat:lat,centerLng:lng,radiusMeters,randomCheckEnabled,selfieEnabled,startTime}));
     toast.success(`Session started for ${course.name}`);
   };
 
@@ -489,6 +573,19 @@ export default function DoctorDashboard() {
     toast.success("Session ended");
   };
 
+  const handleTriggerRandomCheck = async (sessionId: string) => {
+    try {
+      const { doc, setDoc } = await import("firebase/firestore");
+      await setDoc(doc(db, "sessions", sessionId), {
+        randomCheckActive: true,
+        randomCheckExpiresAt: Date.now() + 60000 // 60 seconds to respond
+      }, { merge: true });
+      toast.success("Random check triggered! Students have 60 seconds.");
+    } catch (error) {
+      toast.error("Failed to trigger random check");
+    }
+  };
+
   const navItems:{id:Tab;label:string;icon:React.ReactNode}[]=[
     {id:"sessions",label:"Sessions",icon:<Radio className="w-5 h-5"/>},
     {id:"courses",label:"My Courses",icon:<BookOpen className="w-5 h-5"/>},
@@ -496,6 +593,7 @@ export default function DoctorDashboard() {
     {id:"attendance",label:"Attendance",icon:<ClipboardList className="w-5 h-5"/>},
     {id:"live",label:"Live Dashboard",icon:<Radio className="w-5 h-5"/>},
     {id:"quizzes",label:"Quizzes",icon:<FileQuestion className="w-5 h-5"/>},
+    {id:"report",label:"Attendance Report",icon:<BarChart2 className="w-5 h-5"/>},
   ];
 
   return (
@@ -508,15 +606,15 @@ export default function DoctorDashboard() {
       {(showSchedModal||editSchedule)&&<ScheduleModal schedule={editSchedule} defaultDay={activeDay} myCourses={myCourses} onSave={d=>{editSchedule?updateSchedule(editSchedule.id,d):addSchedule(d);setSched(false);setEditSched(null);}} onClose={()=>{setSched(false);setEditSched(null);}}/>}
 
       {/* Sidebar */}
-      <aside className="w-64 bg-[#111827] border-r border-slate-800 hidden md:flex flex-col justify-between">
-        <div>
-          <div className="h-20 flex items-center px-8 border-b border-slate-800">
+      <aside className="w-64 bg-[#111827] border-r border-slate-800 hidden md:flex flex-col">
+        <div className="flex flex-col flex-1 min-h-0">
+          <div className="h-20 flex items-center px-8 border-b border-slate-800 flex-shrink-0">
             <div className="flex items-center gap-2">
               <div className="bg-blue-500 p-1.5 rounded-lg"><MapPin className="text-white w-5 h-5"/></div>
               <span className="text-xl font-bold text-white tracking-wide">GeoAttend</span>
             </div>
           </div>
-          <nav className="p-4 flex flex-col gap-1 mt-4">
+          <nav className="p-4 flex flex-col gap-1 mt-2 overflow-y-auto flex-1">
             {navItems.map(n=>(
               <button key={n.id} onClick={()=>setTab(n.id)}
                 className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors text-sm ${tab===n.id?"bg-blue-500/10 text-blue-400 border border-blue-500/20":"text-slate-400 hover:bg-slate-800 hover:text-white border border-transparent"}`}>
@@ -528,7 +626,7 @@ export default function DoctorDashboard() {
             </button>
           </nav>
         </div>
-        <div className="p-4 border-t border-slate-800">
+        <div className="p-4 border-t border-slate-800 flex-shrink-0">
           <button onClick={()=>setSettings(true)} className="w-full flex items-center gap-3 px-4 py-3 mb-2 rounded-xl bg-slate-800/50 hover:bg-blue-500/10 transition-all text-left">
             <div className="bg-blue-500 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0">{user?.firstName?.[0]}{user?.lastName?.[0]}</div>
             <div className="overflow-hidden flex-1 min-w-0">
@@ -577,7 +675,7 @@ export default function DoctorDashboard() {
                   <h2 className="text-white font-semibold flex items-center gap-2 mb-4"><Radio className="w-4 h-4 text-[#00D084] animate-pulse"/>Live Now</h2>
                   <div className="flex flex-col gap-4">
                     {sessions.filter(s=>s.isActive).map(s=>(
-                      <LiveSessionCard key={s.id} session={s} onEnd={handleEnd} onShowQR={setQR} onViewStudents={setViewStudents}/>
+                      <LiveSessionCard key={s.id} session={s} onEnd={handleEnd} onShowQR={setQR} onViewStudents={setViewStudents} onTriggerRandomCheck={handleTriggerRandomCheck}/>
                     ))}
                   </div>
                 </div>
@@ -708,6 +806,24 @@ export default function DoctorDashboard() {
                 <p className="text-slate-400 text-sm">Create and manage quizzes for your courses.</p>
               </div>
               <DoctorQuizPanel />
+            </div>
+          )}
+
+          {tab==="report"&&(
+            <div className="p-6 md:p-10 max-w-7xl mx-auto w-full">
+              <DoctorAttendanceReport />
+            </div>
+          )}
+
+          {tab==="analytics"&&(
+            <div className="p-6 md:p-10 max-w-7xl mx-auto w-full">
+              <DoctorAnalytics />
+            </div>
+          )}
+
+          {tab==="materials"&&(
+            <div className="p-6 md:p-10 max-w-7xl mx-auto w-full">
+              <DoctorMaterials />
             </div>
           )}
 

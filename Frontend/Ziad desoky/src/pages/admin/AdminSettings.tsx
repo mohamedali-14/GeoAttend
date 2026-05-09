@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Lock, Mail, Eye, EyeOff, Save, CheckCircle, AlertCircle, Shield } from "lucide-react";
-import AdminLayout from "./AdminLayout";
 import { useAuth } from "../../context/AuthContext";
 import { useMockData } from "../../context/MockDataContext";
 
@@ -67,7 +66,7 @@ export default function AdminSettings() {
   };
 
   return (
-    <AdminLayout>
+
       <div className="p-6 md:p-10 max-w-xl mx-auto">
         <div className="mb-8 pb-6 border-b border-slate-800">
           <h1 className="text-3xl font-serif font-bold text-white mb-2">Admin Settings</h1>
@@ -141,6 +140,6 @@ export default function AdminSettings() {
           </div>
         </div>
       </div>
-    </AdminLayout>
+
   );
 }

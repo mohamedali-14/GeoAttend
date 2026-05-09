@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Plus, Edit3, Trash2, BookOpen, X, Save, AlertTriangle, Users, MapPin, Hash, Clock } from "lucide-react";
-import AdminLayout from "./AdminLayout";
 import Breadcrumbs from "../../components/Breadcrumbs";
 import { useMockData } from "../../context/MockDataContext";
 import type { Course } from "../../context/MockDataContext";
@@ -154,7 +153,7 @@ export default function AdminCourses() {
   );
 
   return (
-    <AdminLayout>
+    <>
       {(showModal || editTarget) && (
         <CourseModal
           course={editTarget}
@@ -263,6 +262,6 @@ export default function AdminCourses() {
           </div>
         )}
       </div>
-    </AdminLayout>
+    </>
   );
 }

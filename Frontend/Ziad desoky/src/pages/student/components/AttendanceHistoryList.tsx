@@ -2,43 +2,43 @@ import { useState, useMemo } from "react";
 import { History } from "lucide-react";
 import { getLocalSessions } from "./studentUtils";
 
-export function AttendanceHistoryList({ userId, courses, users, attendanceEvents }: {
-  userId: string; courses: any[]; users: any[]; attendanceEvents: any[];
+export function AttendanceHistoryList({ userId, courses, allSessions, attendanceHistory }: {
+  userId: string; courses: any[]; allSessions: any[]; attendanceHistory: any[];
 }) {
   const [filter, setFilter] = useState<"all"|"present"|"absent">("all");
 
-  const allSessions = useMemo(() => {
+  const records = useMemo(() => {
     const courseIds = new Set(courses.map((c: any) => c.id));
-    return getLocalSessions(users)
-      .filter(s => courseIds.has(s.courseId) && !s.isActive)
-      .sort((a: any, b: any) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+    // Filter to ended sessions for the student's courses
+    return allSessions
+      .filter(s => courseIds.has(s.courseId) && s.status === "ENDED")
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .map((sess: any) => {
-        const myAttendee = sess.attendees?.find((a: any) => a.studentId === userId);
-        const myEvent = !myAttendee ? attendanceEvents.find((e: any) => e.sessionId === sess.id && e.studentId === userId) : null;
-        const isKicked = myAttendee?.status === "kicked" || myEvent?.status === "kicked";
-        const isPresent = !isKicked && (myAttendee ? myAttendee.status !== "kicked" : !!myEvent);
+        const myAtt = attendanceHistory.find((a: any) => a.sessionId === sess.id);
+        const isPresent = !!myAtt;
+        const isKicked  = myAtt?.status === "kicked";
         const course = courses.find((c: any) => c.id === sess.courseId);
         return {
           id: sess.id,
           courseCode: course?.code || "",
           courseName: course?.name || "Unknown",
-          startTime: sess.startTime,
+          startTime: sess.createdAt,
           status: isKicked ? "kicked" : isPresent ? "present" : "absent",
         };
       });
-  }, [userId, courses, users, attendanceEvents]);
+  }, [userId, courses, allSessions, attendanceHistory]);
 
-  const presentCount = allSessions.filter(s => s.status === "present").length;
-  const absentCount  = allSessions.filter(s => s.status === "absent" || s.status === "kicked").length;
-  const filtered = filter === "all" ? allSessions
-    : filter === "present" ? allSessions.filter(s => s.status === "present")
-    : allSessions.filter(s => s.status === "absent" || s.status === "kicked");
+  const presentCount = records.filter(s => s.status === "present").length;
+  const absentCount  = records.filter(s => s.status === "absent" || s.status === "kicked").length;
+  const filtered = filter === "all" ? records
+    : filter === "present" ? records.filter(s => s.status === "present")
+    : records.filter(s => s.status === "absent" || s.status === "kicked");
 
   return (
     <div>
       <div className="flex gap-2 mb-4">
         {[
-          { key: "all",     label: `All (${allSessions.length})` },
+          { key: "all",     label: `All (${records.length})` },
           { key: "present", label: `Present (${presentCount})` },
           { key: "absent",  label: `Absent (${absentCount})` },
         ].map(f => (

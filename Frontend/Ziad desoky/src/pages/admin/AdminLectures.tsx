@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Search, PlusCircle, Trash2, Edit3, Clock, X, Check, Users, UserCheck, UserMinus, ChevronDown, ChevronUp } from "lucide-react";
-import AdminLayout from "./AdminLayout";
 import Breadcrumbs from "../../components/Breadcrumbs";
 import { useMockData, type Lecture } from "../../context/MockDataContext";
 
@@ -185,7 +184,7 @@ export default function AdminLectures() {
   }[s] || "");
 
   return (
-    <AdminLayout>
+    <>
       {showModal && <AddLectureModal onClose={() => setShowModal(false)} />}
       <div className="p-6 md:p-10 max-w-7xl mx-auto">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 pb-6 border-b border-slate-800 gap-4">
@@ -303,6 +302,6 @@ export default function AdminLectures() {
           <div className="text-center py-16 text-slate-500">No lectures found.</div>
         )}
       </div>
-    </AdminLayout>
+    </>
   );
 }

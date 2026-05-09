@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, Shield, UserX, UserCheck, ChevronDown, Trash2, Edit3, X, Save, AlertTriangle } from "lucide-react";
-import AdminLayout from "./AdminLayout";
 import { useMockData } from "../../context/MockDataContext";
+import { apiGetAdminUsers } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 import type { User } from "../../context/AuthContext";
 import Breadcrumbs from "../../components/Breadcrumbs";
+import { db } from "../../firebase";
+import { collection, onSnapshot } from "firebase/firestore";
 
 /* ── Delete Confirm Modal ── */
 function DeleteModal({ user, onConfirm, onCancel }: { user: User; onConfirm: () => void; onCancel: () => void }) {
@@ -142,7 +144,72 @@ function ActionMenu({ targetUser, onClose, onEdit, onDelete }: {
    Main Page
    ══════════════════════════════════════════ */
 export default function AdminUsers() {
-  const { users, deleteUser, updateUserInList } = useMockData();
+  const { users: mockUsers, deleteUser, updateUserInList } = useMockData();
+  const [backendUsers, setBackendUsers] = useState<any[]>([]);
+  const [firestoreUsers, setFirestoreUsers] = useState<any[]>([]);
+  const [loadingBackend, setLoadingBackend] = useState(true);
+
+  // 1. Fetch from backend API
+  useEffect(() => {
+    setLoadingBackend(true);
+    apiGetAdminUsers()
+      .then(data => {
+        const list = Array.isArray(data) ? data : data?.users || [];
+        if (list.length > 0) setBackendUsers(list);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingBackend(false));
+  }, []);
+
+  // 2. Real-time from Firestore "users" collection (fallback when backend quota exceeded)
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "users"), (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setFirestoreUsers(list);
+    }, () => {}); // Silence quota errors silently
+    return () => unsub();
+  }, []);
+
+  // 3. Merge all sources (deduplicate by ID/email)
+  const users: User[] = (() => {
+    const mergedMap = new Map<string, User>();
+
+    // Start with mock (lowest priority)
+    mockUsers.forEach(u => mergedMap.set(u.id, u));
+
+    // Add Firestore users
+    firestoreUsers.forEach((u: any) => {
+      const mapped: User = {
+        id: u.uid || u.id || u._id || u.email,
+        firstName: u.firstName || (u.fullName || u.name || "").split(" ")[0] || "",
+        lastName: u.lastName || (u.fullName || u.name || "").split(" ").slice(1).join(" ") || "",
+        email: u.email || "",
+        role: u.role === "PROFESSOR" ? "DOCTOR" : (u.role || "STUDENT"),
+        studentID: u.studentId || u.studentID || "",
+        department: u.department || "",
+        isBanned: u.isBanned || false,
+      };
+      mergedMap.set(mapped.id, mapped);
+    });
+
+    // Add backend users (highest priority)
+    backendUsers.forEach((u: any) => {
+      const id = u.uid || u.id || u._id || u.email;
+      const mapped: User = {
+        id,
+        firstName: u.firstName || (u.fullName || u.name || "").split(" ")[0] || "",
+        lastName: u.lastName || (u.fullName || u.name || "").split(" ").slice(1).join(" ") || "",
+        email: u.email || "",
+        role: u.role === "PROFESSOR" ? "DOCTOR" : (u.role || "STUDENT"),
+        studentID: u.studentId || u.studentID || "",
+        department: u.department || "",
+        isBanned: u.isBanned || !u.isActive,
+      };
+      mergedMap.set(id, mapped);
+    });
+
+    return Array.from(mergedMap.values());
+  })();
   const [search,       setSearch]       = useState("");
   const [roleFilter,   setRoleFilter]   = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL"); // ALL | ACTIVE | BANNED
@@ -172,7 +239,7 @@ export default function AdminUsers() {
   }[role] || "");
 
   return (
-    <AdminLayout>
+    <>
       {editUser && (
         <EditModal user={editUser}
           onSave={d => { updateUserInList(editUser.id, d); setEditUser(null); }}
@@ -286,6 +353,6 @@ export default function AdminUsers() {
           </div>
         </div>
       </div>
-    </AdminLayout>
+    </>
   );
 }

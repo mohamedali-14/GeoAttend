@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { FileQuestion, ChevronDown, ChevronUp } from "lucide-react";
 
 export function QuizHistoryPanel({ submissions, sessions, userId }: {
@@ -6,49 +6,75 @@ export function QuizHistoryPanel({ submissions, sessions, userId }: {
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const mySubmissions = [...submissions]
-    .filter(s => s.studentId === userId)
-    .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+  const allHistory = useMemo(() => {
+    const mySubs = submissions.filter(s => s.studentId === userId);
+    const subSessionIds = new Set(mySubs.map(s => s.quizSessionId));
+    
+    // Ended sessions that the student was supposed to take but didn't
+    const missedQuizzes = sessions.filter(s => s.status === "ENDED" && !subSessionIds.has(s.id));
 
-  if (mySubmissions.length === 0) return (
+    const combined = [
+      ...mySubs.map(s => ({ ...s, type: "submission" })),
+      ...missedQuizzes.map(s => ({
+        id: "MISSED_" + s.id,
+        quizSessionId: s.id,
+        studentId: userId,
+        submittedAt: s.endedAt || s.createdAt,
+        score: 0,
+        timeTaken: 0,
+        attemptNumber: 0,
+        type: "missed"
+      }))
+    ];
+
+    return combined.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+  }, [submissions, sessions, userId]);
+
+  if (allHistory.length === 0) return (
     <div className="text-center py-16 text-slate-500">
       <FileQuestion className="w-12 h-12 mx-auto mb-3 opacity-30"/>
-      <p className="font-medium">No quiz submissions yet</p>
-      <p className="text-sm mt-1">Your quiz history will appear here after you take a quiz</p>
+      <p className="font-medium">No quiz history yet</p>
+      <p className="text-sm mt-1">Quizzes you take or miss will appear here</p>
     </div>
   );
 
   return (
     <div className="flex flex-col gap-3">
-      {mySubmissions.map(sub => {
+      {allHistory.map(sub => {
         const quiz = sessions.find((s: any) => s.id === sub.quizSessionId);
         const isExpanded = expandedId === sub.id;
-        const scoreColor = sub.score >= 80 ? "text-[#00D084]" : sub.score >= 60 ? "text-yellow-400" : "text-red-400";
-        const scoreBg    = sub.score >= 80 ? "bg-[#00D084]/10 border-[#00D084]/20" : sub.score >= 60 ? "bg-yellow-500/10 border-yellow-500/20" : "bg-red-500/10 border-red-500/20";
+        const isMissed = sub.type === "missed";
+        
+        const scoreColor = isMissed ? "text-slate-500" : sub.score >= 80 ? "text-[#00D084]" : sub.score >= 60 ? "text-yellow-400" : "text-red-400";
+        const scoreBg    = isMissed ? "bg-slate-800/50 border-slate-700" : sub.score >= 80 ? "bg-[#00D084]/10 border-[#00D084]/20" : sub.score >= 60 ? "bg-yellow-500/10 border-yellow-500/20" : "bg-red-500/10 border-red-500/20";
         const mins = Math.floor(sub.timeTaken / 60);
         const secs = sub.timeTaken % 60;
-        const correctCount = quiz ? quiz.questions.filter((q: any) => sub.answers?.[q.id] === q.correct).length : 0;
+        const correctCount = (quiz && !isMissed) ? quiz.questions.filter((q: any) => sub.answers?.[q.id] === q.correct).length : 0;
 
         return (
-          <div key={sub.id} className="bg-[#111827] border border-slate-800 rounded-2xl overflow-hidden hover:border-slate-700 transition-all">
+          <div key={sub.id} className={`bg-[#111827] border border-slate-800 rounded-2xl overflow-hidden hover:border-slate-700 transition-all ${isMissed ? "opacity-70" : ""}`}>
             <div className="flex items-center gap-4 px-5 py-4">
               <div className={`flex-shrink-0 w-16 h-16 rounded-xl border flex flex-col items-center justify-center ${scoreBg}`}>
-                <span className={`text-xl font-bold ${scoreColor}`}>{sub.score}%</span>
-                {quiz && <span className="text-[10px] text-slate-500">{correctCount}/{quiz.questions.length}</span>}
+                <span className={`text-xl font-bold ${scoreColor}`}>{isMissed ? "—" : `${sub.score}%`}</span>
+                {quiz && !isMissed && <span className="text-[10px] text-slate-500">{correctCount}/{quiz.questions.length}</span>}
+                {isMissed && <span className="text-[10px] text-slate-500">Missed</span>}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-white font-semibold truncate">{quiz?.title || "Unknown Quiz"}</p>
                 <p className="text-slate-400 text-sm">{quiz?.courseName || "—"}</p>
                 <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
                   <span>{new Date(sub.submittedAt).toLocaleDateString("en-EG",{month:"short",day:"numeric",year:"numeric"})}</span>
-                  <span>{mins}m {secs}s</span>
+                  {!isMissed && <span>{mins}m {secs}s</span>}
                   {sub.attemptNumber > 1 && <span>Attempt #{sub.attemptNumber}</span>}
+                  {isMissed && <span className="text-red-400 font-medium">Not Submitted</span>}
                 </div>
               </div>
-              <button onClick={() => setExpandedId(isExpanded ? null : sub.id)}
-                className="flex-shrink-0 p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all">
-                {isExpanded ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>}
-              </button>
+              {!isMissed && (
+                <button onClick={() => setExpandedId(isExpanded ? null : sub.id)}
+                  className="flex-shrink-0 p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all">
+                  {isExpanded ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>}
+                </button>
+              )}
             </div>
 
             {isExpanded && quiz && (

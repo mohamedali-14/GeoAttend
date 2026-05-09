@@ -2,18 +2,18 @@ import { useMemo } from "react";
 import { BarChart2 } from "lucide-react";
 import { getLocalSessions, didStudentAttend } from "./studentUtils";
 
-export function AttendanceTrendChart({ myCourses, userId, users }: {
-  myCourses: any[]; userId: string; users: any[];
+export function AttendanceTrendChart({ myCourses, userId, allSessions, attendanceHistory }: {
+  myCourses: any[]; userId: string; allSessions: any[]; attendanceHistory: any[];
 }) {
   const data = useMemo(() => {
-    const localSessions = getLocalSessions(users);
     return myCourses.slice(0, 8).map(c => {
-      const sessions = localSessions.filter(s => s.courseId === c.id && !s.isActive);
+      const sessions = allSessions.filter(s => s.courseId === c.id && s.status === "ENDED");
+      const myAtt = attendanceHistory.filter(a => a.courseId === c.id);
       const total = sessions.length;
-      const present = sessions.filter(s => didStudentAttend(s, userId)).length;
+      const present = myAtt.length;
       return { name: c.code, pct: total > 0 ? Math.round((present/total)*100) : 0, total, present };
     });
-  }, [myCourses, userId, users]);
+  }, [myCourses, userId, allSessions, attendanceHistory]);
 
   if (data.length === 0 || data.every(d => d.total === 0)) return (
     <div className="text-center py-10 text-slate-500">

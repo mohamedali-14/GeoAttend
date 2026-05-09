@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Search, UserPlus, UserMinus, ArrowLeft, Users, BookOpen, Hash, CheckCircle } from "lucide-react";
-import AdminLayout from "./AdminLayout";
 import { useMockData } from "../../context/MockDataContext";
 
 export default function AdminCourseEnrollment() {
@@ -28,7 +27,7 @@ export default function AdminCourseEnrollment() {
   const enrolledCount = students.filter(s => isEnrolled(s.id)).length;
 
   if (!course) return (
-    <AdminLayout>
+
       <div className="flex items-center justify-center h-full p-10">
         <div className="text-center text-slate-500">
           <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-30" />
@@ -36,13 +35,13 @@ export default function AdminCourseEnrollment() {
           <button onClick={() => navigate("/admin/courses")} className="mt-4 text-[#00D084] hover:underline text-sm">← Back to Courses</button>
         </div>
       </div>
-    </AdminLayout>
+
   );
 
   const doctorUser = users.find(u => u.id === course.doctorId);
 
   return (
-    <AdminLayout>
+
       <div className="p-6 md:p-10 max-w-5xl mx-auto">
 
         {/* Back + Header */}
@@ -166,6 +165,6 @@ export default function AdminCourseEnrollment() {
           </div>
         )}
       </div>
-    </AdminLayout>
+
   );
 }

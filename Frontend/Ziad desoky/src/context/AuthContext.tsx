@@ -31,13 +31,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-// ── helpers: use sessionStorage (per-tab) not localStorage ─────────────────
+// ── helpers: use localStorage for persistence across tabs/mobile ───────────
 const SESSION_KEY = "geo_user_session";
 
 function readUser(): User | null {
   try {
-    const s = sessionStorage.getItem(SESSION_KEY);
-    return s ? (JSON.parse(s) as User) : null;
+    const ls = localStorage.getItem(SESSION_KEY);
+    if (ls) return JSON.parse(ls) as User;
+    const ss = sessionStorage.getItem(SESSION_KEY);
+    return ss ? (JSON.parse(ss) as User) : null;
   } catch {
     return null;
   }
@@ -45,8 +47,10 @@ function readUser(): User | null {
 
 function writeUser(u: User | null) {
   if (u) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(u));
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(u));
   } else {
+    localStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(SESSION_KEY);
   }
 }

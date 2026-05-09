@@ -19,35 +19,37 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      // ── Try real backend first ────────────────────────────────────────────
       let loggedUser = null;
-      try {
+      const searchId = identifier.trim().toLowerCase();
+      const pw = password.trim();
 
-          const allUsers = JSON.parse(localStorage.getItem("geo_all_users") || "[]");
-      const user = allUsers.find((u: any) => u.email === identifier || u.studentID === identifier);
-      if (!user || (user.password && user.password !== password)) {
-        throw new Error("Invalid email or password.");
+      // ── Step 1: Check mock/demo users FIRST (always works offline) ─────────
+      const mockFound = MOCK_USERS.find(u =>
+        (u.email.toLowerCase() === searchId || u.studentID === searchId) &&
+        u.password === pw
+      );
+      if (mockFound) {
+        loggedUser = {
+          id:         mockFound.id,
+          firstName:  mockFound.firstName,
+          lastName:   mockFound.lastName,
+          email:      mockFound.email,
+          role:       mockFound.role as "STUDENT" | "DOCTOR" | "ADMIN",
+          department: mockFound.department,
+          studentID:  mockFound.studentID,
+          isBanned:   mockFound.isBanned ?? false,
+        };
       }
-      const data = { user };
 
-        loggedUser = data.user;
-      } catch {
-        // ── Backend unavailable → fall back to mock users ─────────────────
-        const found = MOCK_USERS.find(u =>
-          (u.email === identifier || u.studentID === identifier) &&
-          u.password === password
-        );
-        if (found) {
-          loggedUser = {
-            id:         found.id,
-            firstName:  found.firstName,
-            lastName:   found.lastName,
-            email:      found.email,
-            role:       found.role as "STUDENT" | "DOCTOR" | "ADMIN",
-            department: found.department,
-            studentID:  found.studentID,
-            isBanned:   found.isBanned ?? false,
-          };
+      // ── Step 2: If not a demo user, try the real backend ──────────────────
+      if (!loggedUser) {
+        try {
+          const data = await apiLogin(identifier.trim(), pw);
+          loggedUser = data.user;
+        } catch (backendErr: any) {
+          console.warn("[GeoAttend] Backend error:", (backendErr as any)?.message);
+          setError(backendErr?.message || "Invalid email or password.");
+          return;
         }
       }
 
@@ -55,14 +57,17 @@ export default function Login() {
         setError("Invalid email or password.");
         return;
       }
-      if (loggedUser.isBanned) {
+      if ((loggedUser as any).isBanned) {
         setError("Your account has been suspended. Contact support.");
         return;
       }
-      login(loggedUser);
-      if      (loggedUser.role === "ADMIN")  navigate("/admin");
-      else if (loggedUser.role === "DOCTOR") navigate("/doctor");
-      else                                   navigate("/student");
+
+      login(loggedUser as any);
+      const role = (loggedUser as any).role;
+      if      (role === "ADMIN")  navigate("/admin");
+      else if (role === "DOCTOR") navigate("/doctor");
+      else                        navigate("/student");
+
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid email or password.");
     } finally {

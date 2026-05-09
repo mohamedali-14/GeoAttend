@@ -2,12 +2,40 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>geo-attendance-web</title>
+
+    <!-- Primary SEO -->
+    <title>GeoAttend — Smart Geo-Based Attendance System</title>
+    <meta name="description" content="GeoAttend is a smart attendance management system using geolocation, QR codes, and real-time tracking for universities and colleges." />
+    <meta name="keywords" content="attendance, geolocation, university, students, QR code, smart attendance" />
+    <meta name="author" content="GeoAttend" />
+    <meta name="theme-color" content="#00D084" />
+
+    <!-- Open Graph -->
+    <meta property="og:type"        content="website" />
+    <meta property="og:url"         content="https://geoattend.app/" />
+    <meta property="og:title"       content="GeoAttend — Smart Attendance System" />
+    <meta property="og:description" content="Real-time geo-based attendance for universities. Track lectures, quizzes, and student performance." />
+    <meta property="og:image"       content="/og-image.png" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card"        content="summary_large_image" />
+    <meta name="twitter:title"       content="GeoAttend" />
+    <meta name="twitter:description" content="Smart geo-based attendance for universities." />
+    <meta name="twitter:image"       content="/og-image.png" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="icon" type="image/png" href="/icon-192.png" />
+
+    <!-- Preconnect for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
   </head>
   <body>
     <div id="root"></div>
+    <!-- jsQR: lightweight QR code scanner (no build step needed) -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

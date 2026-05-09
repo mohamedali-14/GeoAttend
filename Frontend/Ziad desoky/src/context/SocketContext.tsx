@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "./AuthContext";
+import { db } from "../firebase";
+import { collection, onSnapshot, query, orderBy, limit, where } from "firebase/firestore";
 
 export interface AttendanceEvent {
   sessionId: string;
@@ -19,6 +21,14 @@ export interface SessionEvent {
   action: "started" | "ended";
   timestamp: string;
   doctorId?: string;
+  quizActive?: boolean;
+  quizQuestions?: any[];
+  geoEnabled?: boolean;
+  centerLat?: number | null;
+  centerLng?: number | null;
+  radiusMeters?: number;
+  randomCheckEnabled?: boolean;
+  selfieEnabled?: boolean;
 }
 
 interface SocketContextType {
@@ -42,67 +52,124 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isAuthenticated || !user) { setIsConnected(false); return; }
-    const t = setTimeout(() => setIsConnected(true), 600);
-    return () => { clearTimeout(t); setIsConnected(false); };
+    setIsConnected(true);
+
+    // 1. Listen for LIVE attendance events
+    const attQ = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(100));
+    const unsubAtt = onSnapshot(attQ, (snap) => {
+        const events = snap.docs.map(d => ({
+            sessionId: d.data().sessionId,
+            studentId: d.data().studentId,
+            studentName: d.data().studentName || "Student",
+            courseId: d.data().courseId,
+            timestamp: d.data().timestamp || new Date().toISOString(),
+            geoStatus: d.data().geoStatus,
+            status: d.data().status || "present",
+            leftAt: d.data().leftAt,
+        } as AttendanceEvent));
+        setAttendanceEvents(events);
+    });
+
+    // 2. Listen for LIVE session lifecycle events (Including Quiz status)
+    const sessQ = query(collection(db, "sessions"), orderBy("updatedAt", "desc"), limit(50));
+    const unsubSess = onSnapshot(sessQ, (snap) => {
+        const events: SessionEvent[] = [];
+        snap.docs.forEach(d => {
+            const data = d.data();
+            if (data.status === "ACTIVE" || data.isActive) {
+                events.push({
+                    sessionId: d.id,
+                    courseId: data.courseId,
+                    courseName: data.courseName || "Lecture",
+                    action: "started",
+                    timestamp: data.startTime || data.createdAt || new Date().toISOString(),
+                    doctorId: data.professorId || data.doctorId,
+                    // QUIZ FIELDS FROM OMAR'S LOGIC
+                    quizActive: data.quizActive || false,
+                    quizQuestions: data.quizQuestions || [],
+                });
+            } else if (data.status === "ENDED") {
+                events.push({
+                    sessionId: d.id,
+                    courseId: data.courseId,
+                    courseName: data.courseName || "Lecture",
+                    action: "ended",
+                    timestamp: data.endTime || data.updatedAt || new Date().toISOString(),
+                    doctorId: data.professorId || data.doctorId,
+                });
+            }
+        });
+        setSessionEvents(events);
+    });
+
+    return () => {
+        unsubAtt();
+        unsubSess();
+    };
   }, [isAuthenticated, user]);
 
-  const emitAttendance = (event: AttendanceEvent) => {
-    const ev = { ...event, status: event.status || "present" };
-    setAttendanceEvents(prev => [ev, ...prev].slice(0, 100));
-    localStorage.setItem("geo_rt_attendance", JSON.stringify({ ...ev, _ts: Date.now() }));
-
-    // Also update the doctor's session attendees list in real-time
+  const emitAttendance = async (event: AttendanceEvent) => {
     try {
-      const activeRaw = localStorage.getItem("geo_active_session");
-      if (!activeRaw) return;
-      const active = JSON.parse(activeRaw);
-      // Find which doctor owns this session's course
-      const adminSessions = JSON.parse(localStorage.getItem("geo_admin_sessions") || "[]");
-      const adminSess = adminSessions.find((s: any) => s.id === event.sessionId);
-      const doctorId = adminSess?.doctorId;
-      if (!doctorId) return;
-      const key = "geo_sessions_" + doctorId;
-      const sessions = JSON.parse(localStorage.getItem(key) || "[]");
-      const updated = sessions.map((s: any) => {
-        if (s.id !== event.sessionId) return s;
-        const attendees = s.attendees || [];
-        const exists = attendees.some((a: any) => a.studentId === event.studentId);
-        if (exists) {
-          return { ...s, attendees: attendees.map((a: any) =>
-            a.studentId === event.studentId ? { ...a, status: ev.status, leftAt: ev.leftAt } : a
-          )};
-        }
-        return { ...s, attendees: [...attendees, { studentId: ev.studentId, studentName: ev.studentName, timestamp: ev.timestamp, geoStatus: ev.geoStatus, status: ev.status }] };
-      });
-      localStorage.setItem(key, JSON.stringify(updated));
-    } catch { }
+      const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
+      const ref = doc(db, "attendance", `${event.sessionId}_${event.studentId}`);
+      await setDoc(ref, {
+        ...event,
+        status: event.status || "present",
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (err) {
+      console.error("Failed to emit attendance to Firestore:", err);
+    }
   };
 
-  const emitSession = (event: SessionEvent) => {
-    setSessionEvents(prev => [event, ...prev].slice(0, 50));
-    localStorage.setItem("geo_rt_session", JSON.stringify({ ...event, _ts: Date.now() }));
+  const emitSession = async (event: SessionEvent) => {
+    try {
+      const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
+      const ref = doc(db, "sessions", event.sessionId);
+      await setDoc(ref, {
+        courseId: event.courseId,
+        courseName: event.courseName,
+        professorId: event.doctorId || user?.id,
+        status: event.action === "started" ? "ACTIVE" : "ENDED",
+        isActive: event.action === "started",
+        startTime: event.action === "started" ? event.timestamp : undefined,
+        endTime: event.action === "ended" ? event.timestamp : undefined,
+        // Anti-cheating fields
+        geoEnabled: event.geoEnabled ?? false,
+        centerLat: event.centerLat ?? null,
+        centerLng: event.centerLng ?? null,
+        radiusMeters: event.radiusMeters ?? 50,
+        randomCheckEnabled: event.randomCheckEnabled ?? false,
+        selfieEnabled: event.selfieEnabled ?? false,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (err) {
+      console.error("Failed to emit session to Firestore:", err);
+    }
   };
 
-  const kickStudent = (sessionId: string, studentId: string) => {
-    const kickEvent = { type: "kick", sessionId, studentId, _ts: Date.now() };
-    localStorage.setItem("geo_rt_kick", JSON.stringify(kickEvent));
-    setAttendanceEvents(prev => prev.map(e =>
-      e.sessionId === sessionId && e.studentId === studentId
-        ? { ...e, status: "kicked", leftAt: new Date().toISOString() }
-        : e
-    ));
+  const kickStudent = async (sessionId: string, studentId: string) => {
+    try {
+      const { doc, updateDoc } = await import("firebase/firestore");
+      const ref = doc(db, "attendance", `${sessionId}_${studentId}`);
+      await updateDoc(ref, { status: "kicked", leftAt: new Date().toISOString() });
+    } catch (err) {
+      console.error("Failed to kick student in Firestore:", err);
+    }
   };
 
-  const studentLeave = (sessionId: string, studentId: string) => {
-    setAttendanceEvents(prev => prev.map(e =>
-      e.sessionId === sessionId && e.studentId === studentId
-        ? { ...e, status: "left", leftAt: new Date().toISOString() }
-        : e
-    ));
-    localStorage.setItem("geo_rt_leave", JSON.stringify({ sessionId, studentId, _ts: Date.now() }));
+  const studentLeave = async (sessionId: string, studentId: string) => {
+    try {
+      const { doc, updateDoc } = await import("firebase/firestore");
+      const ref = doc(db, "attendance", `${sessionId}_${studentId}`);
+      await updateDoc(ref, { status: "left", leftAt: new Date().toISOString() });
+    } catch (err) {
+      console.error("Failed to record leave in Firestore:", err);
+    }
   };
 
   const clearEvents = (mode: "all" | "keep_present" = "all") => {
+    // Local clear for UI responsiveness
     if (mode === "keep_present") {
       setAttendanceEvents(prev => prev.filter(e => e.status === "present"));
     } else {
@@ -110,95 +177,6 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       setSessionEvents([]);
     }
   };
-
-  useEffect(() => {
-    // Track last seen timestamps to avoid re-processing old events
-    const lastSeen: Record<string, number> = {};
-
-    const processLocalStorage = () => {
-      // Attendance events
-      try {
-        const raw = localStorage.getItem("geo_rt_attendance");
-        if (raw) {
-          const ev = JSON.parse(raw) as AttendanceEvent & { _ts?: number };
-          const ts = ev._ts || 0;
-          if (!lastSeen["att"] || ts > lastSeen["att"]) {
-            lastSeen["att"] = ts;
-            setAttendanceEvents(prev => {
-              const exists = prev.some(p => p.studentId === ev.studentId && p.sessionId === ev.sessionId);
-              if (exists) {
-                return prev.map(p =>
-                  p.studentId === ev.studentId && p.sessionId === ev.sessionId
-                    ? { ...p, status: ev.status || p.status, leftAt: ev.leftAt || p.leftAt }
-                    : p
-                );
-              }
-              return [{ ...ev, status: ev.status || "present" }, ...prev].slice(0, 100);
-            });
-          }
-        }
-      } catch { }
-
-      // Session events
-      try {
-        const raw = localStorage.getItem("geo_rt_session");
-        if (raw) {
-          const ev = JSON.parse(raw) as SessionEvent & { _ts?: number };
-          const ts = ev._ts || 0;
-          if (!lastSeen["sess"] || ts > lastSeen["sess"]) {
-            lastSeen["sess"] = ts;
-            setSessionEvents(prev => {
-              if (prev.some(p => p.sessionId === ev.sessionId && p.action === ev.action)) return prev;
-              return [ev, ...prev].slice(0, 50);
-            });
-          }
-        }
-      } catch { }
-
-      // Kick events
-      try {
-        const raw = localStorage.getItem("geo_rt_kick");
-        if (raw) {
-          const { sessionId, studentId, _ts } = JSON.parse(raw);
-          if (!lastSeen["kick"] || _ts > lastSeen["kick"]) {
-            lastSeen["kick"] = _ts;
-            setAttendanceEvents(prev => prev.map(e =>
-              e.sessionId === sessionId && e.studentId === studentId
-                ? { ...e, status: "kicked" as const, leftAt: new Date().toISOString() }
-                : e
-            ));
-          }
-        }
-      } catch { }
-
-      // Leave events
-      try {
-        const raw = localStorage.getItem("geo_rt_leave");
-        if (raw) {
-          const { sessionId, studentId, _ts } = JSON.parse(raw);
-          if (!lastSeen["leave"] || _ts > lastSeen["leave"]) {
-            lastSeen["leave"] = _ts;
-            setAttendanceEvents(prev => prev.map(e =>
-              e.sessionId === sessionId && e.studentId === studentId
-                ? { ...e, status: "left" as const, leftAt: new Date().toISOString() }
-                : e
-            ));
-          }
-        }
-      } catch { }
-    };
-
-    // Poll every 2s for same-tab real-time updates
-    const iv = setInterval(processLocalStorage, 2000);
-    // Also fire on cross-tab storage events
-    const handler = (e: StorageEvent) => {
-      if (["geo_rt_attendance","geo_rt_session","geo_rt_kick","geo_rt_leave"].includes(e.key || "")) {
-        processLocalStorage();
-      }
-    };
-    window.addEventListener("storage", handler);
-    return () => { clearInterval(iv); window.removeEventListener("storage", handler); };
-  }, []);
 
   return (
     <SocketContext.Provider value={{ isConnected, attendanceEvents, sessionEvents, emitAttendance, emitSession, clearEvents, kickStudent, studentLeave }}>

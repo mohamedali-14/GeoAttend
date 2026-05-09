@@ -1,143 +1,90 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import type { User } from "./AuthContext";
+import { apiGetCourses, apiGetSchedules, apiGetAllUsers,
+  apiEnrollStudent, apiGetStudentEnrollments,
+  apiCreateCourse, apiUpdateCourse, apiDeleteCourse,
+  apiCreateSchedule, apiCreateUser, apiEditUser, apiDeleteUser,
+  apiGetAllEnrollments,
+} from "../services/api";
+import { db } from "../firebase";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 
 export interface Lecture {
-  id: string;
-  title: string;
-  doctorId: string;
-  doctorName: string;
-  department: string;
-  scheduledAt: string;
-  duration: number;
+  id: string; title: string; doctorId: string; doctorName: string;
+  department: string; scheduledAt: string; duration: number;
   status: "SCHEDULED" | "ACTIVE" | "COMPLETED" | "CANCELLED";
-  studentsPresent: number;
-  location?: string;
-  courseId?: string;
+  studentsPresent: number; location?: string; courseId?: string;
 }
-
 export interface Course {
-  id: string;
-  name: string;
-  code: string;
-  doctorId: string;
-  department: string;
-  creditHours: number;
-  location: string;
+  id: string; name: string; code: string; doctorId: string;
+  department: string; creditHours: number; location: string;
 }
-
 export interface Schedule {
-  id: string;
-  courseId: string;
+  id: string; courseId: string;
   day: "Saturday" | "Sunday" | "Monday" | "Tuesday" | "Wednesday" | "Thursday";
-  startTime: string;
-  endTime: string;
-  location: string;
+  startTime: string; endTime: string; location: string;
 }
-
-export interface Enrollment {
-  id: string;
-  courseId: string;
-  studentId: string;
-}
-
-// NEW: track attendance per student per lecture
+export interface Enrollment { id: string; courseId: string; studentId: string; }
 export interface AttendanceRecord {
-  id: string;
-  lectureId: string;
-  studentId: string;
-  courseId: string;
-  timestamp: string;
+  id: string; lectureId: string; studentId: string; courseId: string; timestamp: string;
 }
 
-export interface MockDataContextType {
-  users: User[];
-  lectures: Lecture[];
-  courses: Course[];
-  schedules: Schedule[];
-  enrollments: Enrollment[];
-  attendance: AttendanceRecord[];
-
-  addUser: (u: User) => void;
-  updateUserInList: (id: string, data: Partial<User>) => void;
-  deleteUser: (id: string) => void;
-
-  addLecture: (l: Omit<Lecture, "id">) => void;
-  updateLecture: (id: string, data: Partial<Lecture>) => void;
-  deleteLecture: (id: string) => void;
-
-  addCourse: (c: Omit<Course, "id">) => void;
-  updateCourse: (id: string, data: Partial<Course>) => void;
-  deleteCourse: (id: string) => void;
-
-  addSchedule: (s: Omit<Schedule, "id">) => void;
-  updateSchedule: (id: string, data: Partial<Schedule>) => void;
-  deleteSchedule: (id: string) => void;
-
-  enrollStudent: (courseId: string, studentId: string) => void;
-  unenrollStudent: (courseId: string, studentId: string) => void;
-
-  markAttendance: (lectureId: string, studentId: string, courseId: string) => void;
-  unmarkAttendance: (lectureId: string, studentId: string) => void;
-
-  banUser: (id: string) => void;
-  unbanUser: (id: string) => void;
-  promoteToAdmin: (id: string) => void;
-  demoteFromAdmin: (id: string, newRole: "STUDENT" | "DOCTOR") => void;
-}
-
-const MockDataContext = createContext<MockDataContextType | null>(null);
-
-export const MOCK_USERS: User[] = [
-  { id: "3", firstName: "Admin",   lastName: "User",    email: "admin@geo.com",    password: "123456", role: "ADMIN",   isBanned: false },
-  { id: "4", firstName: "Mohamed", lastName: "Khaled",  email: "m.khaled@geo.com", password: "123456", role: "STUDENT", department: "Computer Science", studentID: "20240042", isBanned: false },
-  { id: "5", firstName: "Nour",    lastName: "Ibrahim", email: "nour@geo.com",     password: "123456", role: "DOCTOR",  department: "Mathematics",      isBanned: false },
-  { id: "6", firstName: "Omar",    lastName: "Tarek",   email: "omar@geo.com",     password: "123456", role: "STUDENT", department: "Physics",          studentID: "20240099", isBanned: true },
-  { id: "7", firstName: "Sara",    lastName: "Ahmed",   email: "sara@geo.com",     password: "123456", role: "STUDENT", department: "Computer Science", studentID: "20240010", isBanned: false },
-  { id: "8", firstName: "Khaled",  lastName: "Hassan",  email: "khaled@geo.com",   password: "123456", role: "DOCTOR",  department: "Computer Science", isBanned: false },
-];
-
-const DEFAULT_COURSES: Course[] = [
-  { id: "C1", name: "Data Structures",  code: "CS201",  doctorId: "8", department: "Computer Science", creditHours: 3, location: "Hall A-101" },
-  { id: "C2", name: "Calculus II",       code: "MTH202", doctorId: "5", department: "Mathematics",     creditHours: 3, location: "Hall B-202" },
-  { id: "C3", name: "Web Development",   code: "CS301",  doctorId: "8", department: "Computer Science", creditHours: 3, location: "Lab C-103" },
-  { id: "C4", name: "Linear Algebra",    code: "MTH301", doctorId: "5", department: "Mathematics",     creditHours: 2, location: "Hall B-301" },
-];
-
-const DEFAULT_SCHEDULES: Schedule[] = [
-  { id: "S1", courseId: "C1", day: "Sunday",    startTime: "09:00", endTime: "11:00", location: "Hall A-101" },
-  { id: "S2", courseId: "C1", day: "Tuesday",   startTime: "09:00", endTime: "11:00", location: "Hall A-101" },
-  { id: "S3", courseId: "C2", day: "Monday",    startTime: "10:00", endTime: "12:00", location: "Hall B-202" },
-  { id: "S4", courseId: "C3", day: "Wednesday", startTime: "13:00", endTime: "15:00", location: "Lab C-103" },
-  { id: "S5", courseId: "C4", day: "Thursday",  startTime: "08:00", endTime: "10:00", location: "Hall B-301" },
-  { id: "S6", courseId: "C2", day: "Wednesday", startTime: "10:00", endTime: "12:00", location: "Hall B-202" },
-];
-
-const DEFAULT_ENROLLMENTS: Enrollment[] = [
-  { id: "E1", courseId: "C1", studentId: "4" },
-  { id: "E2", courseId: "C3", studentId: "4" },
-  { id: "E3", courseId: "C1", studentId: "7" },
-  { id: "E4", courseId: "C2", studentId: "7" },
-];
-
-const DEFAULT_LECTURES: Lecture[] = [
-  { id: "L1", title: "Introduction to CS",     doctorId: "8", doctorName: "Dr. Khaled Hassan", department: "Computer Science", scheduledAt: "10:00 AM - 12:00 PM", duration: 120, status: "ACTIVE",    studentsPresent: 2, courseId: "C1" },
-  { id: "L2", title: "Data Structures & Algo", doctorId: "8", doctorName: "Dr. Khaled Hassan", department: "Computer Science", scheduledAt: "02:00 PM - 04:00 PM", duration: 90,  status: "SCHEDULED", studentsPresent: 0, courseId: "C1" },
-  { id: "L3", title: "Calculus II",             doctorId: "5", doctorName: "Dr. Nour Ibrahim",  department: "Mathematics",      scheduledAt: "08:00 AM - 10:00 AM", duration: 120, status: "COMPLETED", studentsPresent: 1, courseId: "C2" },
-];
-
-const DEFAULT_ATTENDANCE: AttendanceRecord[] = [
-  { id: "A1", lectureId: "L1", studentId: "4", courseId: "C1", timestamp: new Date().toISOString() },
-  { id: "A2", lectureId: "L1", studentId: "7", courseId: "C1", timestamp: new Date().toISOString() },
-  { id: "A3", lectureId: "L3", studentId: "7", courseId: "C2", timestamp: new Date().toISOString() },
-];
-
-function load<T>(key: string, fallback: T[]): T[] {
+// ── local helpers ─────────────────────────────────────────────────────────────
+function load<T>(key: string, fallback: T): T {
   try { const s = localStorage.getItem(key); if (s) return JSON.parse(s); } catch (_e) { void _e; }
   return fallback;
 }
-function save<T>(key: string, data: T[]) {
-  localStorage.setItem(key, JSON.stringify(data));
+function save<T>(key: string, data: T) { localStorage.setItem(key, JSON.stringify(data)); }
+
+// ── Mock fallback data ────────────────────────────────────────────────────────
+export const MOCK_USERS: (User & { password?: string; studentID?: string })[] = [
+  { id:"admin1",   firstName:"Admin",   lastName:"User",    email:"admin@geo.com",   password:"admin123",   role:"ADMIN",   department:"CS" },
+  { id:"doc1",     firstName:"Ahmed",   lastName:"Hassan",  email:"doctor@geo.com",  password:"doctor123",  role:"DOCTOR",  department:"CS" },
+  { id:"stu1",     firstName:"Ziad",    lastName:"Desoky",  email:"student@geo.com", password:"student123", role:"STUDENT", department:"CS", studentID:"2021001" },
+];
+
+const DEFAULT_LECTURES: Lecture[] = [];
+const DEFAULT_COURSES: Course[]   = [
+  { id:"c1", name:"Data Structures", code:"CS301", doctorId:"doc1", department:"CS", creditHours:3, location:"Hall A" },
+  { id:"c2", name:"Algorithms",      code:"CS302", doctorId:"doc1", department:"CS", creditHours:3, location:"Hall B" },
+];
+const DEFAULT_SCHEDULES: Schedule[] = [
+  { id:"s1", courseId:"c1", day:"Sunday",   startTime:"09:00", endTime:"11:00", location:"Hall A" },
+  { id:"s2", courseId:"c2", day:"Tuesday",  startTime:"11:00", endTime:"13:00", location:"Hall B" },
+];
+const DEFAULT_ENROLLMENTS: Enrollment[] = [
+  { id:"e1", courseId:"c1", studentId:"stu1" },
+];
+const DEFAULT_ATTENDANCE: AttendanceRecord[] = [];
+
+// ── Context type ──────────────────────────────────────────────────────────────
+export interface MockDataContextType {
+  users: User[]; lectures: Lecture[]; courses: Course[];
+  schedules: Schedule[]; enrollments: Enrollment[]; attendance: AttendanceRecord[];
+  addUser: (u: User) => void;
+  updateUserInList: (id: string, data: Partial<User>) => void;
+  deleteUser: (id: string) => void;
+  addLecture: (l: Omit<Lecture,"id">) => void;
+  updateLecture: (id: string, data: Partial<Lecture>) => void;
+  deleteLecture: (id: string) => void;
+  addCourse: (c: Omit<Course,"id">) => void;
+  updateCourse: (id: string, data: Partial<Course>) => void;
+  deleteCourse: (id: string) => void;
+  addSchedule: (s: Omit<Schedule,"id">) => void;
+  updateSchedule: (id: string, data: Partial<Schedule>) => void;
+  deleteSchedule: (id: string) => void;
+  enrollStudent: (courseId: string, studentId: string) => void;
+  unenrollStudent: (courseId: string, studentId: string) => void;
+  markAttendance: (lectureId: string, studentId: string, courseId: string) => void;
+  unmarkAttendance: (lectureId: string, studentId: string) => void;
+  banUser: (id: string) => void;
+  unbanUser: (id: string) => void;
+  promoteToAdmin: (id: string) => void;
+  demoteFromAdmin: (id: string, r: "STUDENT" | "DOCTOR") => void;
+  refreshFromBackend: () => Promise<void>;
 }
+
+const MockDataContext = createContext<MockDataContextType | null>(null);
 
 export function MockDataProvider({ children }: { children: ReactNode }) {
   const [users,       setUsers]       = useState<User[]>(() => load("geo_all_users",       MOCK_USERS));
@@ -147,6 +94,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const [enrollments, setEnrollments] = useState<Enrollment[]>(() => load("geo_all_enrollments", DEFAULT_ENROLLMENTS));
   const [attendance,  setAttendance]  = useState<AttendanceRecord[]>(() => load("geo_all_attendance", DEFAULT_ATTENDANCE));
 
+  // ── Persist to localStorage ─────────────────────────────────────────────────
   useEffect(() => { save("geo_all_users",       users);       }, [users]);
   useEffect(() => { save("geo_all_lectures",    lectures);    }, [lectures]);
   useEffect(() => { save("geo_all_courses",     courses);     }, [courses]);
@@ -154,44 +102,201 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => { save("geo_all_enrollments", enrollments); }, [enrollments]);
   useEffect(() => { save("geo_all_attendance",  attendance);  }, [attendance]);
 
-  // Users
-  const addUser          = (u: User)                            => setUsers(p => [...p, u]);
-  const updateUserInList = (id: string, data: Partial<User>)   => setUsers(p => p.map(u => u.id === id ? { ...u, ...data } : u));
-  const deleteUser       = (id: string)                         => setUsers(p => p.filter(u => u.id !== id));
-  const banUser          = (id: string)                         => setUsers(p => p.map(u => u.id === id ? { ...u, isBanned: true  } : u));
-  const unbanUser        = (id: string)                         => setUsers(p => p.map(u => u.id === id ? { ...u, isBanned: false } : u));
-  const promoteToAdmin   = (id: string)                         => setUsers(p => p.map(u => u.id === id ? { ...u, role: "ADMIN"  } : u));
-  const demoteFromAdmin  = (id: string, r: "STUDENT"|"DOCTOR") => setUsers(p => p.map(u => u.id === id ? { ...u, role: r       } : u));
+  // ── Fetch from backend on mount ─────────────────────────────────────────────
+  const refreshFromBackend = async () => {
+    try {
+      const [coursesRes, schedulesRes, usersRes] = await Promise.allSettled([
+        apiGetCourses(),
+        apiGetSchedules(),
+        apiGetAllUsers(),
+      ]);
 
-  // Lectures
-  const addLecture    = (l: Omit<Lecture,"id">)            => setLectures(p => [...p, { ...l, id: "L" + Date.now() }]);
-  const updateLecture = (id: string, d: Partial<Lecture>)  => setLectures(p => p.map(l => l.id === id ? { ...l, ...d } : l));
-  const deleteLecture = (id: string)                        => setLectures(p => p.filter(l => l.id !== id));
+      // Backend /courses returns array directly (not { courses: [...] })
+      if (coursesRes.status === "fulfilled") {
+        const raw = coursesRes.value as any;
+        const arr: any[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.courses) ? raw.courses : null);
+        if (arr && arr.length > 0) {
+          const mapped = arr.map((c: any) => ({
+            id: c._id || c.id,
+            name: c.name,
+            code: c.code,
+            doctorId: c.professorId || c.doctorId || "",
+            department: c.department || "",
+            creditHours: c.creditHours || 3,
+            location: c.location || "",
+          }));
+          setCourses(mapped);
+          save("geo_all_courses", mapped);
+        }
+      }
 
-  // Courses
-  const addCourse    = (c: Omit<Course,"id">)             => setCourses(p => [...p, { ...c, id: "C" + Date.now() }]);
-  const updateCourse = (id: string, d: Partial<Course>)   => setCourses(p => p.map(c => c.id === id ? { ...c, ...d } : c));
-  const deleteCourse = (id: string)                        => {
+      // Backend /schedules returns array directly
+      if (schedulesRes.status === "fulfilled") {
+        const raw = schedulesRes.value as any;
+        const arr: any[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.schedules) ? raw.schedules : null);
+        if (arr && arr.length > 0) {
+          const mapped = arr.map((s: any) => ({
+            id: s._id || s.id,
+            courseId: s.courseId,
+            day: s.day,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            location: s.location || "",
+          }));
+          setSchedules(mapped);
+          save("geo_all_schedules", mapped);
+        }
+      }
+
+      // Backend /admin/users returns { users: [...] }
+      if (usersRes.status === "fulfilled" && Array.isArray(usersRes.value)) {
+        const mapped = (usersRes.value as User[]);
+        if (mapped.length > 0) {
+          setUsers(mapped);
+          save("geo_all_users", mapped);
+        }
+      }
+    } catch {
+      // Backend unavailable — keep using localStorage/mock data
+    }
+  };
+
+  // Fetch enrollments separately (can fail independently)
+  const refreshEnrollments = async () => {
+    try {
+      const arr = await apiGetAllEnrollments() as any[];
+      if (arr && arr.length >= 0) {
+        const mapped: Enrollment[] = arr.map((e: any) => ({
+          id: e.id || e._id || "E" + Date.now() + Math.random(),
+          courseId: e.courseId || "",
+          studentId: e.studentId || "",
+        }));
+        setEnrollments(mapped);
+        save("geo_all_enrollments", mapped);
+      }
+    } catch {
+      // Ignore — keep local enrollments
+    }
+  };
+
+  // Real-time synchronization using Firestore (Direct linking like Omar Shabaan)
+  useEffect(() => {
+    // 1. Listen for Courses
+    const unsubCourses = onSnapshot(collection(db, "courses"), (snap) => {
+      const arr = snap.docs.map(d => ({ id: d.id, ...d.data() } as Course));
+      if (arr.length > 0) setCourses(arr);
+    });
+
+    // 2. Listen for Schedules
+    const unsubSchedules = onSnapshot(collection(db, "schedules"), (snap) => {
+      const arr = snap.docs.map(d => ({ id: d.id, ...d.data() } as Schedule));
+      if (arr.length > 0) setSchedules(arr);
+    });
+
+    // 3. Listen for Enrollments
+    const unsubEnrollments = onSnapshot(collection(db, "enrollments"), (snap) => {
+      const arr = snap.docs.map(d => ({ id: d.id, ...d.data() } as Enrollment));
+      if (arr.length >= 0) setEnrollments(arr);
+    });
+
+    return () => {
+      unsubCourses();
+      unsubSchedules();
+      unsubEnrollments();
+    };
+  }, []);
+
+  // ── Users ───────────────────────────────────────────────────────────────────
+  const addUser = async (u: User) => {
+    setUsers(p => [...p, u]);
+    try { await apiCreateUser({ email: u.email, password: "temp1234", fullName: `${u.firstName} ${u.lastName}`, role: u.role }); } catch { }
+  };
+  const updateUserInList = async (id: string, data: Partial<User>) => {
+    setUsers(p => p.map(u => u.id === id ? { ...u, ...data } : u));
+    try { await apiEditUser(id, { fullName: `${data.firstName || ""} ${data.lastName || ""}`.trim(), role: data.role || "STUDENT" }); } catch { }
+  };
+  const deleteUser = async (id: string) => {
+    setUsers(p => p.filter(u => u.id !== id));
+    try { await apiDeleteUser(id); } catch { }
+  };
+  const banUser        = (id: string) => setUsers(p => p.map(u => u.id === id ? { ...u, isBanned: true  } : u));
+  const unbanUser      = (id: string) => setUsers(p => p.map(u => u.id === id ? { ...u, isBanned: false } : u));
+  const promoteToAdmin = (id: string) => setUsers(p => p.map(u => u.id === id ? { ...u, role: "ADMIN"  } : u));
+  const demoteFromAdmin = (id: string, r: "STUDENT" | "DOCTOR") => setUsers(p => p.map(u => u.id === id ? { ...u, role: r } : u));
+
+  // ── Lectures ────────────────────────────────────────────────────────────────
+  const addLecture    = (l: Omit<Lecture,"id">)           => setLectures(p => [...p, { ...l, id: "L" + Date.now() }]);
+  const updateLecture = (id: string, d: Partial<Lecture>) => setLectures(p => p.map(l => l.id === id ? { ...l, ...d } : l));
+  const deleteLecture = (id: string)                       => setLectures(p => p.filter(l => l.id !== id));
+
+  // ── Courses ─────────────────────────────────────────────────────────────────
+  const addCourse = async (c: Omit<Course,"id">) => {
+    const tmpId = "C" + Date.now();
+    setCourses(p => [...p, { ...c, id: tmpId }]);
+    try {
+      const { doc, setDoc } = await import("firebase/firestore");
+      await setDoc(doc(db, "courses", tmpId), { ...c, id: tmpId });
+    } catch (err) {
+      console.error("Direct Firestore write failed:", err);
+    }
+  };
+  const updateCourse = async (id: string, d: Partial<Course>) => {
+    setCourses(p => p.map(c => c.id === id ? { ...c, ...d } : c));
+    try {
+      const { doc, setDoc } = await import("firebase/firestore");
+      await setDoc(doc(db, "courses", id), d, { merge: true });
+    } catch { }
+  };
+  const deleteCourse = async (id: string) => {
     setCourses(p => p.filter(c => c.id !== id));
     setSchedules(p => p.filter(s => s.courseId !== id));
     setEnrollments(p => p.filter(e => e.courseId !== id));
+    try {
+      const { doc, deleteDoc } = await import("firebase/firestore");
+      await deleteDoc(doc(db, "courses", id));
+    } catch { }
   };
 
-  // Schedules
-  const addSchedule    = (s: Omit<Schedule,"id">)            => setSchedules(p => [...p, { ...s, id: "S" + Date.now() }]);
-  const updateSchedule = (id: string, d: Partial<Schedule>)  => setSchedules(p => p.map(s => s.id === id ? { ...s, ...d } : s));
-  const deleteSchedule = (id: string)                         => setSchedules(p => p.filter(s => s.id !== id));
+  // ── Schedules ───────────────────────────────────────────────────────────────
+  const addSchedule = async (s: Omit<Schedule,"id">) => {
+    const tmpId = "S" + Date.now();
+    setSchedules(p => [...p, { ...s, id: tmpId }]);
+    try {
+      const { doc, setDoc } = await import("firebase/firestore");
+      await setDoc(doc(db, "schedules", tmpId), { ...s, id: tmpId });
+    } catch { }
+  };
+  const updateSchedule = (id: string, d: Partial<Schedule>) => setSchedules(p => p.map(s => s.id === id ? { ...s, ...d } : s));
+  const deleteSchedule = async (id: string) => {
+    setSchedules(p => p.filter(s => s.id !== id));
+    try {
+      const { doc, deleteDoc } = await import("firebase/firestore");
+      await deleteDoc(doc(db, "schedules", id));
+    } catch { }
+  };
 
-  // Enrollments
-  const enrollStudent   = (courseId: string, studentId: string) => setEnrollments(p => [...p, { id: "E" + Date.now(), courseId, studentId }]);
-  const unenrollStudent = (courseId: string, studentId: string) => setEnrollments(p => p.filter(e => !(e.courseId === courseId && e.studentId === studentId)));
+  // ── Enrollments ─────────────────────────────────────────────────────────────
+  const enrollStudent = async (courseId: string, studentId: string) => {
+    const tmpId = `E_${courseId}_${studentId}`;
+    setEnrollments(p => [...p, { id: tmpId, courseId, studentId }]);
+    try {
+      const { doc, setDoc } = await import("firebase/firestore");
+      await setDoc(doc(db, "enrollments", tmpId), { id: tmpId, courseId, studentId });
+    } catch { }
+  };
+  const unenrollStudent = async (courseId: string, studentId: string) => {
+    setEnrollments(p => p.filter(e => !(e.courseId === courseId && e.studentId === studentId)));
+    try {
+      const { doc, deleteDoc } = await import("firebase/firestore");
+      const tmpId = `E_${courseId}_${studentId}`;
+      await deleteDoc(doc(db, "enrollments", tmpId));
+    } catch { }
+  };
 
-  // Attendance
+  // ── Attendance ──────────────────────────────────────────────────────────────
   const markAttendance = (lectureId: string, studentId: string, courseId: string) => {
-    const already = attendance.some(a => a.lectureId === lectureId && a.studentId === studentId);
-    if (already) return;
-    const rec: AttendanceRecord = { id: "A" + Date.now(), lectureId, studentId, courseId, timestamp: new Date().toISOString() };
-    setAttendance(p => [...p, rec]);
+    if (attendance.some(a => a.lectureId === lectureId && a.studentId === studentId)) return;
+    setAttendance(p => [...p, { id: "A" + Date.now(), lectureId, studentId, courseId, timestamp: new Date().toISOString() }]);
     setLectures(p => p.map(l => l.id === lectureId ? { ...l, studentsPresent: l.studentsPresent + 1 } : l));
   };
   const unmarkAttendance = (lectureId: string, studentId: string) => {
@@ -209,6 +314,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       enrollStudent, unenrollStudent,
       markAttendance, unmarkAttendance,
       banUser, unbanUser, promoteToAdmin, demoteFromAdmin,
+      refreshFromBackend,
     }}>
       {children}
     </MockDataContext.Provider>
