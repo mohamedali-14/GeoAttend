@@ -24,11 +24,15 @@ export function isWithinRadius(point: GeoPoint, center: GeoPoint, radius: number
     return getDistanceMeters(point, center) <= radius;
 }
 
-export async function getCurrentLocation(): Promise<GeoPoint | null> {
+export async function getCurrentLocation(lowAccuracy = false): Promise<GeoPoint | null> {
     try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') return null;
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        const loc = await Location.getCurrentPositionAsync({
+            accuracy: lowAccuracy ? Location.Accuracy.Balanced : Location.Accuracy.High,
+            timeInterval: lowAccuracy ? 60000 : 5000,
+            distanceInterval: lowAccuracy ? 10 : 1,
+        });
         return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
     } catch (e) {
         console.error('getCurrentLocation error:', e);
