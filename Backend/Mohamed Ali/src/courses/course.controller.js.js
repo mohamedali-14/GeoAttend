@@ -1,4 +1,4 @@
-const { db, admin } = require("../../config/firebase");
+const { db, admin } = require("../config/firebase");
 
 // CREATE a new course
 async function createCourse(req, res) {
