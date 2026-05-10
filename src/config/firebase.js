@@ -3,10 +3,11 @@ const admin = require("firebase-admin");
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId:   "geoattend-14",
-      clientEmail: "firebase-adminsdk-fbsvc@geoattend-14.iam.gserviceaccount.com",
-      privateKey:  process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      projectId:   process.env.FIREBASE_PROJECT_ID   || "geoattend-14",
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL || "firebase-adminsdk-fbsvc@geoattend-14.iam.gserviceaccount.com",
+      privateKey:  (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
     }),
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "geoattend-14.firebasestorage.app",
   });
 }
 

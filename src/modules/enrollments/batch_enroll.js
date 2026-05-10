@@ -1,19 +1,17 @@
-const { db, admin } = require('../../config/firebase');
+const { db, admin } = require("../../config/firebase");
 const fs = require('fs');
 const csv = require('csv-parser');
 
-/**
- * Upload CSV and enroll multiple students
- * POST /enrollments/batch
- * Body: multipart/form-data with CSV file
- */
+function getCurrentSemester() {
+    const month = new Date().getMonth() + 1;
+    return (month >= 9 || month <= 1) ? 'FIRST' : 'SECOND';
+}
 
 async function batchEnroll(req, res) {
-    if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
-    }
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
     try {
-        const file = req.file; // assumes multer or similar
+        const file = req.file;
         const results = [];
         const errors = [];
 
@@ -22,25 +20,35 @@ async function batchEnroll(req, res) {
             .on('data', (row) => results.push(row))
             .on('end', async () => {
                 const batch = db.batch();
-                const courseRefs = {};
+                const courseCache = {};
 
                 for (const row of results) {
                     const { studentId, courseId, semester } = row;
 
-                    // Validate course exists
-                    if (!courseRefs[courseId]) {
+                    if (!studentId || !courseId) {
+                        errors.push({ row, error: 'Missing required fields' });
+                        continue;
+                    }
+
+                    if (!courseCache[courseId]) {
                         const courseDoc = await db.collection('courses').doc(courseId).get();
                         if (!courseDoc.exists) {
                             errors.push({ row, error: 'Course not found' });
                             continue;
                         }
-                        courseRefs[courseId] = courseDoc.data();
+                        courseCache[courseId] = courseDoc.data();
                     }
 
-                    // Check for duplicate enrollment
+                    const studentDoc = await db.collection('users').doc(studentId).get();
+                    if (!studentDoc.exists || studentDoc.data().role !== 'STUDENT') {
+                        errors.push({ row, error: 'Invalid student' });
+                        continue;
+                    }
+
                     const existing = await db.collection('enrollments')
                         .where('studentId', '==', studentId)
                         .where('courseId', '==', courseId)
+                        .where('status', '==', 'ACTIVE')
                         .limit(1)
                         .get();
 
@@ -52,23 +60,24 @@ async function batchEnroll(req, res) {
                     const enrollmentRef = db.collection('enrollments').doc();
                     batch.set(enrollmentRef, {
                         studentId,
+                        studentName: studentDoc.data().fullName || 'Unknown',
                         courseId,
-                        courseName: courseRefs[courseId].name,
-                        professorId: courseRefs[courseId].professorId,
+                        courseName: courseCache[courseId].name,
+                        professorId: courseCache[courseId].professorId,
+                        professorName: courseCache[courseId].professorName || '',
                         enrolledAt: admin.firestore.FieldValue.serverTimestamp(),
                         semester: semester || getCurrentSemester(),
                         year: new Date().getFullYear(),
                         status: 'ACTIVE'
                     });
 
-                    // Increment course student count
                     batch.update(db.collection('courses').doc(courseId), {
                         studentCount: admin.firestore.FieldValue.increment(1)
                     });
                 }
 
                 await batch.commit();
-                fs.unlinkSync(file.path); // clean up temp file
+                fs.unlinkSync(file.path);
 
                 res.json({
                     message: 'Batch enrollment completed',
@@ -78,13 +87,9 @@ async function batchEnroll(req, res) {
                 });
             });
     } catch (error) {
+        console.error('Batch enroll error:', error);
         res.status(500).json({ error: error.message });
     }
-}
-
-function getCurrentSemester() {
-    const month = new Date().getMonth() + 1;
-    return (month >= 9 || month <= 1) ? 'FIRST' : 'SECOND';
 }
 
 module.exports = { batchEnroll };
