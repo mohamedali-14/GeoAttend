@@ -199,10 +199,34 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       if (arr.length >= 0) setEnrollments(arr);
     });
 
+    // 4. Listen for Users from Firestore (includes profilePicture)
+    const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
+      if (snap.empty) return;
+      const firestoreUsers = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      setUsers(prev => {
+        // Merge: keep existing users but enrich with Firestore data (especially profilePicture)
+        const firestoreMap = new Map(firestoreUsers.map((u: any) => [u.id, u]));
+        // Update existing users with Firestore data
+        const merged = prev.map(u => {
+          const fUser = firestoreMap.get(u.id);
+          if (fUser) return { ...u, ...fUser, id: u.id };
+          return u;
+        });
+        // Add any Firestore users not already in the list
+        firestoreUsers.forEach((fUser: any) => {
+          if (!merged.find(u => u.id === fUser.id)) {
+            merged.push(fUser);
+          }
+        });
+        return merged;
+      });
+    }, () => {}); // silent fail if Firestore is unavailable
+
     return () => {
       unsubCourses();
       unsubSchedules();
       unsubEnrollments();
+      unsubUsers();
     };
   }, []);
 

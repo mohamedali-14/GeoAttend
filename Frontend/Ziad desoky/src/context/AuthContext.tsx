@@ -18,6 +18,7 @@ export interface User {
   department?: string;
   studentID?: string;
   isBanned?: boolean;
+  profilePicture?: string;
 }
 
 interface AuthContextType {

@@ -123,13 +123,19 @@ export default function AdminDashboard() {
               {recentUsers.map((u, i) => (
                 <div key={u.id} className={`flex items-center justify-between py-3 ${i < recentUsers.length - 1 ? "border-b border-slate-800" : ""}`}>
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                      u.role === "ADMIN"  ? "bg-purple-500/20 text-purple-400" :
-                      u.role === "DOCTOR" ? "bg-blue-500/20   text-blue-400"   :
-                      "bg-[#00D084]/20 text-[#00D084]"
-                    }`}>{u.firstName[0]}{u.lastName[0]}</div>
+                    {u.profilePicture ? (
+                      <img src={u.profilePicture} alt="Profile" className={`w-8 h-8 rounded-full object-cover flex-shrink-0 border ${
+                        u.role === "ADMIN" ? "border-purple-500/40" : u.role === "DOCTOR" ? "border-blue-500/40" : "border-[#00D084]/40"
+                      }`} />
+                    ) : (
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                        u.role === "ADMIN"  ? "bg-purple-500/20 text-purple-400" :
+                        u.role === "DOCTOR" ? "bg-blue-500/20   text-blue-400"   :
+                        "bg-[#00D084]/20 text-[#00D084]"
+                      }`}>{(u.firstName?.[0] || u.fullName?.[0] || "?")}{(u.lastName?.[0] || "")}</div>
+                    )}
                     <div className="min-w-0">
-                      <p className="text-white text-sm font-medium truncate">{u.firstName} {u.lastName}</p>
+                      <p className="text-white text-sm font-medium truncate">{u.firstName || (u.fullName || "").split(" ")[0]} {u.lastName || (u.fullName || "").split(" ").slice(1).join(" ")}</p>
                       <p className="text-slate-500 text-xs truncate">{u.email}</p>
                     </div>
                   </div>

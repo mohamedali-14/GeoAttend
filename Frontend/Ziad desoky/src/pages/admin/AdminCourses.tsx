@@ -67,9 +67,9 @@ function CourseModal({ course, onSave, onClose }: {
                       : "border-slate-700 bg-[#1E293B] text-slate-300 hover:border-slate-600"
                   }`}>
                   <div className="w-7 h-7 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                    {d.firstName[0]}{d.lastName[0]}
+                    {(d.firstName?.[0] || d.fullName?.[0] || "?")}{(d.lastName?.[0] || "")}
                   </div>
-                  Dr. {d.firstName} {d.lastName}
+                  Dr. {d.firstName || (d.fullName || "").split(" ")[0]} {d.lastName || (d.fullName || "").split(" ").slice(1).join(" ")}
                   {d.department && <span className="text-slate-500 text-xs ml-auto">{d.department}</span>}
                 </button>
               ))}
@@ -145,7 +145,8 @@ export default function AdminCourses() {
 
   const getDoctorName = (id: string) => {
     const d = users.find(u => u.id === id);
-    return d ? `Dr. ${d.firstName} ${d.lastName}` : "—";
+    if (!d) return "—";
+    return `Dr. ${d.firstName || (d.fullName || "").split(" ")[0]} ${d.lastName || (d.fullName || "").split(" ").slice(1).join(" ")}`;
   };
 
   const filtered = courses.filter(c =>

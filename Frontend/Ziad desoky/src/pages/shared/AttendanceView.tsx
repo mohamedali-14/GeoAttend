@@ -175,12 +175,16 @@ export default function AttendanceView({ courseId, lectureId }: Props) {
           ) : filtered.map(({ student, attended, total, pct, isPresent }) => (
             <div key={student.id} className="grid grid-cols-[2fr_1fr_1fr_1fr] items-center px-5 py-3.5 hover:bg-slate-800/30 transition-colors">
               <div className="flex items-center gap-3">
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0
-                  ${isPresent ? "bg-[#00D084]/20 text-[#00D084]" : "bg-slate-700 text-slate-400"}`}>
-                  {student.firstName[0]}{student.lastName[0]}
-                </div>
+                {student.profilePicture ? (
+                  <img src={student.profilePicture} alt="Profile" className="w-9 h-9 rounded-full object-cover border border-slate-700 flex-shrink-0" />
+                ) : (
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0
+                    ${isPresent ? "bg-[#00D084]/20 text-[#00D084]" : "bg-slate-700 text-slate-400"}`}>
+                    {(student.firstName?.[0] || (student as any).fullName?.[0] || "?")}{(student.lastName?.[0] || "")}
+                  </div>
+                )}
                 <div>
-                  <p className="text-white text-sm font-medium">{student.firstName} {student.lastName}</p>
+                  <p className="text-white text-sm font-medium">{student.firstName || (student as any).fullName?.split(" ")[0]} {student.lastName || (student as any).fullName?.split(" ").slice(1).join(" ")}</p>
                   <p className="text-slate-500 text-xs">{student.studentID ? `ID: ${student.studentID}` : student.email}</p>
                 </div>
               </div>

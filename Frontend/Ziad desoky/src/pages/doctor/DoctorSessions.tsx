@@ -452,8 +452,18 @@ export default function DoctorSessions() {
 
     // Try to end on backend (always try with all available IDs)
     const idsToTry = [...new Set([s.backendId, s.id].filter(Boolean))];
+    let success = false;
     for (const id of idsToTry) {
-      try { await apiEndSession(id); break; } catch { }
+      try { 
+        await apiEndSession(id); 
+        success = true;
+        break; 
+      } catch (err) { 
+        console.error("Failed to end session on backend for ID", id, err);
+      }
+    }
+    if (!success) {
+      toast.error("Failed to end session on the server. Please check your connection.");
     }
   };
 

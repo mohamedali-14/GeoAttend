@@ -470,16 +470,22 @@ export default function DoctorDashboard() {
     if (!user) return;
     const q = query(collection(db, "sessions"), where("professorId", "==", user.id));
     const unsub = onSnapshot(q, (snap) => {
+        let zombies: string[] = [];
+        try { zombies = JSON.parse(localStorage.getItem("geo_zombie_sessions") || "[]"); } catch {}
+
         const arr = snap.docs.map(d => {
             const data = d.data();
+            const isZombie = zombies.includes(d.id);
             return {
                 id: d.id,
                 courseId: data.courseId,
                 courseName: data.courseName || "",
                 courseCode: data.courseCode || "",
+                status: data.status,
+                createdAt: data.createdAt,
                 startTime: data.startTime || data.createdAt || new Date().toISOString(),
                 endTime: data.endTime,
-                isActive: data.status === "ACTIVE" || data.isActive,
+                isActive: isZombie ? false : (data.status === "ACTIVE" || data.isActive),
                 geoEnabled: data.geoEnabled || false,
                 centerLat: data.centerLat,
                 centerLng: data.centerLng,
@@ -546,6 +552,7 @@ export default function DoctorDashboard() {
         randomCheckEnabled,
         selfieEnabled,
         attendees: [],
+        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       }).catch(err => console.error("Firestore session write error:", err));
     });
@@ -555,10 +562,18 @@ export default function DoctorDashboard() {
     toast.success(`Session started for ${course.name}`);
   };
 
-  const handleEnd=(sessionId:string)=>{
+  const handleEnd=async (sessionId:string)=>{
     const s=sessions.find(x=>x.id===sessionId);if(!s)return;
     const endTime = new Date().toISOString();
-    // Map AttendanceEvent[] to StoredAttendee format before saving
+    
+    // 1. Mark as locally ended forever
+    try {
+      const zombies = JSON.parse(localStorage.getItem("geo_zombie_sessions") || "[]");
+      if (!zombies.includes(sessionId)) zombies.push(sessionId);
+      localStorage.setItem("geo_zombie_sessions", JSON.stringify(zombies));
+    } catch {}
+
+    // 2. Map AttendanceEvent[] to StoredAttendee format before saving
     const storedAttendees = s.attendees.map(a=>({
       studentId:   a.studentId,
       studentName: a.studentName,
@@ -570,6 +585,16 @@ export default function DoctorDashboard() {
     setSessions(p=>p.map(x=>x.id===sessionId?{...x,isActive:false,endTime,attendees:s.attendees}:x));
     emitSession({sessionId,courseId:s.courseId,courseName:s.courseName,action:"ended",timestamp:endTime});
     localStorage.removeItem("geo_active_session");
+    
+    // 3. Update the backend properly
+    try {
+      const api = await import("../../services/api");
+      await api.apiEndSession(sessionId);
+    } catch (err) {
+      console.error("Failed to end session on backend", err);
+      toast.error("Failed to sync session end with server. It will remain closed on this device.");
+    }
+    
     toast.success("Session ended");
   };
 
@@ -628,7 +653,11 @@ export default function DoctorDashboard() {
         </div>
         <div className="p-4 border-t border-slate-800 flex-shrink-0">
           <button onClick={()=>setSettings(true)} className="w-full flex items-center gap-3 px-4 py-3 mb-2 rounded-xl bg-slate-800/50 hover:bg-blue-500/10 transition-all text-left">
-            <div className="bg-blue-500 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0">{user?.firstName?.[0]}{user?.lastName?.[0]}</div>
+            {user?.profilePicture ? (
+              <img src={user.profilePicture} alt="Profile" className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-blue-500/30" />
+            ) : (
+              <div className="bg-blue-500 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0">{user?.firstName?.[0]}{user?.lastName?.[0]}</div>
+            )}
             <div className="overflow-hidden flex-1 min-w-0">
               <h3 className="text-white font-medium text-sm truncate">Dr. {user?.firstName} {user?.lastName}</h3>
               <p className="text-slate-400 text-xs truncate">{user?.department||"Doctor"}</p>

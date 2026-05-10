@@ -30,7 +30,7 @@ type FeedFilter = "all" | "present" | "left" | "kicked";
 export default function DoctorLiveDashboard() {
   const { user }                                         = useAuth();
   const { attendanceEvents, kickStudent }                = useSocket();
-  const { courses, enrollments }                         = useMockData();
+  const { courses, enrollments, users }                  = useMockData();
   const toast                                            = useToast();
 
   const [tick,     setTick]     = useState(0);
@@ -264,9 +264,13 @@ export default function DoctorLiveDashboard() {
                 const st = e.status==="kicked"?"kicked":e.status==="left"?"left":"present";
                 return (
                   <div key={i} className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-800/50 last:border-0 hover:bg-slate-800/20 transition-colors">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${st==="present"?"bg-[#00D084]/20 text-[#00D084]":st==="left"?"bg-yellow-500/20 text-yellow-400":"bg-red-500/20 text-red-400"}`}>
-                      {e.studentName.slice(0,2).toUpperCase()}
-                    </div>
+                    {users.find(u => u.id === e.studentId)?.profilePicture ? (
+                      <img src={users.find(u => u.id === e.studentId)!.profilePicture} alt="Profile" className="w-10 h-10 rounded-full object-cover border border-slate-700 flex-shrink-0" />
+                    ) : (
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${st==="present"?"bg-[#00D084]/20 text-[#00D084]":st==="left"?"bg-yellow-500/20 text-yellow-400":"bg-red-500/20 text-red-400"}`}>
+                        {e.studentName.slice(0,2).toUpperCase()}
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
                       <p className="text-white text-sm font-semibold">{e.studentName}</p>
                       <p className="text-slate-500 text-xs">Joined {fmtTime(e.timestamp)}{e.leftAt&&" · Left "+fmtTime(e.leftAt)}</p>

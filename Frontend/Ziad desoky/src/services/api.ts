@@ -99,6 +99,7 @@ function mapUser(u: {
   email: string; role: string;
   department?: string; studentId?: string; studentID?: string;
   isActive?: boolean; isBanned?: boolean;
+  profilePicture?: string;
 }) {
   const fullName = u.fullName || u.name || "";
   const parts    = fullName.split(" ");
@@ -114,6 +115,7 @@ function mapUser(u: {
     department: u.department || "",
     studentID:  u.studentId || u.studentID || "",
     isBanned:   u.isBanned ?? (u.isActive === false),
+    profilePicture: u.profilePicture || undefined,
   };
 }
 

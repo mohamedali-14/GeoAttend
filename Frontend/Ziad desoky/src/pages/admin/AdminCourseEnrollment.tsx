@@ -120,18 +120,24 @@ export default function AdminCourseEnrollment() {
                   }`}>
                   {/* Avatar + Info */}
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 relative ${
-                      enrolled ? "bg-[#00D084]/20 text-[#00D084]" : "bg-slate-700 text-slate-300"
-                    }`}>
-                      {s.firstName[0]}{s.lastName[0]}
-                      {enrolled && (
-                        <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-[#00D084] rounded-full flex items-center justify-center">
-                          <CheckCircle className="w-2.5 h-2.5 text-white" />
-                        </span>
-                      )}
-                    </div>
+                    {s.profilePicture ? (
+                      <img src={(s as any).profilePicture} alt="Profile" className={`w-9 h-9 rounded-full object-cover flex-shrink-0 border ${
+                        enrolled ? "border-[#00D084]/40" : "border-slate-700"
+                      } relative`} />
+                    ) : (
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 relative ${
+                        enrolled ? "bg-[#00D084]/20 text-[#00D084]" : "bg-slate-700 text-slate-300"
+                      }`}>
+                        {(s.firstName?.[0] || (s as any).fullName?.[0] || "?")}{(s.lastName?.[0] || "")}
+                        {enrolled && (
+                          <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-[#00D084] rounded-full flex items-center justify-center">
+                            <CheckCircle className="w-2.5 h-2.5 text-white" />
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div className="min-w-0">
-                      <p className="text-white font-medium text-sm truncate">{s.firstName} {s.lastName}</p>
+                      <p className="text-white font-medium text-sm truncate">{s.firstName || (s as any).fullName?.split(" ")[0]} {s.lastName || (s as any).fullName?.split(" ").slice(1).join(" ")}</p>
                       <p className="text-slate-500 text-xs truncate">{s.email}</p>
                       <div className="flex items-center gap-3 mt-0.5">
                         {s.studentID  && <span className="text-slate-500 text-xs flex items-center gap-1"><Hash className="w-3 h-3" />{s.studentID}</span>}

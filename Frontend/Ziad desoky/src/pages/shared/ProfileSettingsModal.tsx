@@ -2,6 +2,9 @@ import { useState } from "react";
 import { X, User, Hash, Building2, Lock, Eye, EyeOff, CheckCircle, AlertCircle, Save } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useMockData } from "../../context/MockDataContext";
+import { db, storage } from "../../firebase";
+import { doc, updateDoc, setDoc } from "firebase/firestore";
+import { ref, uploadString, getDownloadURL, deleteObject } from "firebase/storage";
 
 interface Props { onClose: () => void; }
 
@@ -27,6 +30,9 @@ export default function ProfileSettingsModal({ onClose }: Props) {
   const [showNew,     setShowNew]     = useState(false);
   const [showConf,    setShowConf]    = useState(false);
 
+  const [profilePic,  setProfilePic]  = useState<string | null>(user?.profilePicture || null);
+  const [isUploading, setIsUploading] = useState(false);
+
   const [flash, setFlash] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const showFlash = (ok: boolean, msg: string) => {
@@ -38,7 +44,7 @@ export default function ProfileSettingsModal({ onClose }: Props) {
   const labelCls = "block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2";
 
   // ── Save Profile ──
-  const saveProfile = (e: React.FormEvent) => {
+  const saveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim() || !lastName.trim()) return showFlash(false, "First and last name are required.");
     const updated = {
@@ -46,11 +52,52 @@ export default function ProfileSettingsModal({ onClose }: Props) {
       firstName: firstName.trim(),
       lastName:  lastName.trim(),
       department: department.trim() || user?.department,
+      profilePicture: profilePic || undefined,
       ...(user?.role === "STUDENT" && { studentID: studentID.trim() }),
     };
     updateUser(updated);
     updateUserInList(user!.id, updated);
+    
+    // Attempt to persist to Firestore
+    try {
+      await setDoc(doc(db, "users", user!.id), {
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        department: updated.department,
+        profilePicture: updated.profilePicture || null,
+        ...(updated.role === "STUDENT" && { studentID: updated.studentID }),
+        updatedAt: new Date()
+      }, { merge: true });
+    } catch (err) {
+      console.error("Failed to update user in Firestore", err);
+    }
+
     showFlash(true, "Profile saved successfully!");
+  };
+
+  // ── Handle File Upload ──
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return showFlash(false, "Please select an image file.");
+    
+    // Check file size (limit to 1MB to avoid Firestore issues with base64)
+    if (file.size > 1024 * 1024) {
+      return showFlash(false, "Image is too large. Please select an image under 1MB.");
+    }
+    
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const dataUrl = event.target?.result as string;
+      setProfilePic(dataUrl);
+      showFlash(true, "Image processed! Remember to save changes.");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeProfilePicture = () => {
+    setProfilePic(null);
+    showFlash(true, "Profile picture removed! Remember to save changes.");
   };
 
   // ── Change Password ──
@@ -78,9 +125,13 @@ export default function ProfileSettingsModal({ onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className={`${avatarBg} w-10 h-10 rounded-full flex items-center justify-center ${avatarText} font-bold text-sm`}>
-              {user?.firstName?.[0]}{user?.lastName?.[0]}
-            </div>
+            {profilePic ? (
+              <img src={profilePic} alt="Profile" className="w-10 h-10 rounded-full object-cover border border-slate-600" />
+            ) : (
+              <div className={`${avatarBg} w-10 h-10 rounded-full flex items-center justify-center ${avatarText} font-bold text-sm`}>
+                {user?.firstName?.[0]}{user?.lastName?.[0]}
+              </div>
+            )}
             <div>
               <p className="text-white font-semibold text-sm">{user?.firstName} {user?.lastName}</p>
               <p className="text-slate-400 text-xs">{user?.email} · {user?.role}</p>
@@ -121,6 +172,28 @@ export default function ProfileSettingsModal({ onClose }: Props) {
           {/* ── PROFILE TAB ── */}
           {tab === "profile" && (
             <form onSubmit={saveProfile} className="flex flex-col gap-4">
+              
+              <div className="flex items-center gap-4 mb-2">
+                {profilePic ? (
+                  <img src={profilePic} alt="Profile" className="w-16 h-16 rounded-full object-cover border-2 border-slate-700" />
+                ) : (
+                  <div className={`w-16 h-16 rounded-full flex items-center justify-center ${avatarBg} ${avatarText} font-bold text-xl border-2 border-slate-700`}>
+                    {user?.firstName?.[0]}{user?.lastName?.[0]}
+                  </div>
+                )}
+                <div className="flex flex-col gap-2">
+                  <label className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold py-1.5 px-3 rounded-lg cursor-pointer transition-colors text-center border border-slate-600">
+                    {isUploading ? "Uploading..." : "Change Photo"}
+                    <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} disabled={isUploading} />
+                  </label>
+                  {profilePic && (
+                    <button type="button" onClick={removeProfilePicture} className="text-red-400 hover:text-red-300 text-xs font-semibold px-2 transition-colors text-left">
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}><User className="inline w-3 h-3 mr-1" />First Name</label>

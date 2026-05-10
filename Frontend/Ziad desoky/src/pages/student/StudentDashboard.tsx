@@ -126,23 +126,19 @@ export default function StudentDashboard() {
                 const sessions = await api.apiGetSessions();
                 setBackendSessions(sessions);
                 
+                let zombies: string[] = [];
+                try { zombies = JSON.parse(localStorage.getItem("geo_zombie_sessions") || "[]"); } catch {}
+                
                 const live = sessions.find((s: any) =>
-                    s.status === "ACTIVE" || s.isActive === true
+                    (s.status === "ACTIVE" || s.isActive === true) && !zombies.includes(s.id)
                 );
                 
                 if (live) {
                     setActiveSession(live);
                     localStorage.setItem("geo_active_session", JSON.stringify(live));
-                } else {
-                    const raw = localStorage.getItem("geo_active_session");
-                    if (raw && !live) {
-                       // If backend says no live sessions but local storage has one, it might have ended
-                       setActiveSession(null);
-                       setHasMarked(false);
-                       setDistanceWarning(false);
-                       localStorage.removeItem("geo_active_session");
-                    }
                 }
+                // Removed the `else` block that clears the session. 
+                // We rely on Firestore `onSnapshot` to clear it reliably.
             } catch (err) { }
         };
 
@@ -152,16 +148,25 @@ export default function StudentDashboard() {
         // Listen for ALL sessions (to detect active ones via Firestore if available)
         const sessionsQuery = collection(db, "sessions");
         const unsubSessions = onSnapshot(sessionsQuery, (snap) => {
+            let zombies: string[] = [];
+            try { zombies = JSON.parse(localStorage.getItem("geo_zombie_sessions") || "[]"); } catch {}
+
             const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             setBackendSessions(sessions);
 
             const live = sessions.find((s: any) =>
-                s.status === "ACTIVE" || s.isActive === true
+                (s.status === "ACTIVE" || s.isActive === true) && !zombies.includes(s.id)
             );
             
             if (live) {
                 setActiveSession(live);
                 localStorage.setItem("geo_active_session", JSON.stringify(live));
+            } else {
+                // If there are no live sessions in Firestore, ensure it's cleared
+                setActiveSession(null);
+                setHasMarked(false);
+                setDistanceWarning(false);
+                localStorage.removeItem("geo_active_session");
             }
         });
 
@@ -191,14 +196,18 @@ export default function StudentDashboard() {
     }, [user, myCourseIds.join(",")]);
 
     const getStats = (courseId: string) => {
-        const courseSessions = backendSessions.filter(s => s.courseId === courseId && s.status === "ENDED");
+        const courseSessions = backendSessions.filter(s =>
+            s.courseId === courseId && (s.status === "ENDED" || s.status === "ended" || s.isActive === false)
+        );
         const myAtt = attendanceHistory.filter(a => a.courseId === courseId);
         const total = courseSessions.length;
         const present = myAtt.length;
         return { total, present, pct: total > 0 ? Math.round((present / total) * 100) : null };
     };
 
-    const totalSessions = backendSessions.filter(s => s.status === "ENDED" && myCourseIds.includes(s.courseId)).length;
+    const totalSessions = backendSessions.filter(s =>
+        (s.status === "ENDED" || s.status === "ended" || s.isActive === false) && myCourseIds.includes(s.courseId)
+    ).length;
     const totalAttended = attendanceHistory.length;
     const overallPct    = stats.overallPct;
 
@@ -482,9 +491,13 @@ export default function StudentDashboard() {
                 <div className="p-4 border-t border-slate-800 flex-shrink-0">
                     <button onClick={() => setShowSettings(true)}
                             className="w-full flex items-center gap-3 px-4 py-3 mb-2 rounded-xl bg-slate-800/50 hover:bg-[#00D084]/10 transition-all text-left">
-                        <div className="bg-[#00D084] w-10 h-10 rounded-full flex items-center justify-center text-gray-900 font-bold shadow-[0_0_10px_rgba(0,208,132,0.4)] flex-shrink-0 text-sm">
-                            {user?.firstName?.[0]}{user?.lastName?.[0]}
-                        </div>
+                        {user?.profilePicture ? (
+                            <img src={user.profilePicture} alt="Profile" className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-[#00D084]/30" />
+                        ) : (
+                            <div className="bg-[#00D084] w-10 h-10 rounded-full flex items-center justify-center text-gray-900 font-bold shadow-[0_0_10px_rgba(0,208,132,0.4)] flex-shrink-0 text-sm">
+                                {user?.firstName?.[0]}{user?.lastName?.[0]}
+                            </div>
+                        )}
                         <div className="overflow-hidden flex-1 min-w-0">
                             <h3 className="text-white font-medium text-sm truncate">{user?.firstName} {user?.lastName}</h3>
                             <p className="text-slate-400 text-xs">ID: {(user as any)?.studentID || "N/A"}</p>

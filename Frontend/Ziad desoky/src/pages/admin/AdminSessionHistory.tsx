@@ -423,18 +423,22 @@ export default function AdminSessionHistory() {
                 ) : filtered.map(({ student, effStatus, isOverridden, timestamp, leftAt }) => (
                   <div key={student.id} className={`relative flex items-center gap-3 px-6 py-3 border-b border-slate-800/50 last:border-0 transition-colors ${isOverridden ? "bg-orange-500/5" : "hover:bg-slate-800/20"}`}>
                     {/* Avatar */}
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                      effStatus === "present"    ? "bg-[#00D084]/20 text-[#00D084]" :
-                      effStatus === "absent"     ? "bg-red-500/20 text-red-400" :
-                      effStatus === "kicked"     ? "bg-red-500/30 text-red-300" :
-                      "bg-yellow-500/20 text-yellow-400"
-                    }`}>
-                      {student.firstName[0]}{student.lastName[0]}
-                    </div>
+                    {student.profilePicture ? (
+                      <img src={(student as any).profilePicture} alt="Profile" className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-slate-700" />
+                    ) : (
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                        effStatus === "present"    ? "bg-[#00D084]/20 text-[#00D084]" :
+                        effStatus === "absent"     ? "bg-red-500/20 text-red-400" :
+                        effStatus === "kicked"     ? "bg-red-500/30 text-red-300" :
+                        "bg-yellow-500/20 text-yellow-400"
+                      }`}>
+                        {(student.firstName?.[0] || (student as any).fullName?.[0] || "?")}{(student.lastName?.[0] || "")}
+                      </div>
+                    )}
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <p className="text-white text-sm font-medium">{student.firstName} {student.lastName}</p>
+                        <p className="text-white text-sm font-medium">{student.firstName || (student as any).fullName?.split(" ")[0]} {student.lastName || (student as any).fullName?.split(" ").slice(1).join(" ")}</p>
                         {isOverridden && <span className="text-xs text-orange-400 bg-orange-500/10 border border-orange-500/20 px-1.5 rounded-full">edited</span>}
                       </div>
                       <p className="text-slate-500 text-xs">ID: {(student as any).studentID || "N/A"}</p>

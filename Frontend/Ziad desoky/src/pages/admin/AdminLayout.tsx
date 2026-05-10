@@ -20,7 +20,7 @@ const NAV = [
 
 // ── مستقلة تماماً بره AdminLayout عشان مفيش warnings ──
 interface SidebarProps {
-  user: { firstName?: string; lastName?: string } | null;
+  user: { firstName?: string; lastName?: string; profilePicture?: string } | null;
   isActive: (path: string) => boolean;
   navigate: (path: string) => void;
   setSidebarOpen: (v: boolean) => void;
@@ -72,9 +72,13 @@ function SidebarContent({ user, isActive, navigate, setSidebarOpen, handleLogout
           <button
               onClick={() => { navigate("/admin/settings"); setSidebarOpen(false); }}
               className="w-full flex items-center gap-3 px-4 py-3 mb-1.5 rounded-xl bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-all text-left">
-            <div className="bg-purple-500 w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-[0_0_12px_rgba(168,85,247,0.4)] flex-shrink-0">
-              <Shield className="w-4 h-4" />
-            </div>
+            {user?.profilePicture ? (
+              <img src={user.profilePicture} alt="Profile" className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-purple-500/30 shadow-[0_0_12px_rgba(168,85,247,0.4)]" />
+            ) : (
+              <div className="bg-purple-500 w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-[0_0_12px_rgba(168,85,247,0.4)] flex-shrink-0">
+                <Shield className="w-4 h-4" />
+              </div>
+            )}
             <div className="overflow-hidden flex-1 min-w-0">
               <p className="text-white font-medium text-sm truncate">{user?.firstName} {user?.lastName}</p>
               <p className="text-purple-400 text-xs">System Admin</p>

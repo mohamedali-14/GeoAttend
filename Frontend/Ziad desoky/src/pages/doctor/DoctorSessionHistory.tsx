@@ -1,134 +1,117 @@
 /**
- * DoctorSessionHistory — Doctor's own session history
- * Same layout as AdminSessionHistory but filtered to doctor's sessions only
- * Doctor can view: All / Present / Absent / Left Early per session
+ * DoctorSessionHistory — reads sessions & attendance directly from Firestore
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
-  Clock, ChevronRight, CheckCircle, XCircle, UserX, LogOut,
+  Clock, CheckCircle, XCircle, LogOut, UserX,
   BookOpen, Users, Calendar, X, Search, Radio
 } from "lucide-react";
-import { useMockData } from "../../context/MockDataContext";
-import { useSocket } from "../../context/SocketContext";
+import { db } from "../../firebase";
+import { collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
 import { useAuth } from "../../context/AuthContext";
+import { useMockData } from "../../context/MockDataContext";
 
-function fmt(iso: string) {
-  return new Date(iso).toLocaleString("en-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+function fmt(val: any) {
+  if (!val) return "—";
+  const d = val?.toDate ? val.toDate() : new Date(val);
+  return d.toLocaleString("en-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-EG", { hour: "2-digit", minute: "2-digit" });
-}
-
-interface StoredSession {
-  id: string; courseId: string; courseName: string; courseCode: string;
-  doctorId?: string; startTime: string; endTime?: string; isActive: boolean;
-  geoEnabled: boolean; radiusMeters: number;
-  attendees?: StoredAttendee[];
-}
-interface StoredAttendee {
-  studentId: string; studentName: string; timestamp: string;
-  geoStatus?: string; status?: string; leftAt?: string;
+function fmtTime(val: any) {
+  if (!val) return "—";
+  const d = val?.toDate ? val.toDate() : new Date(val);
+  return d.toLocaleTimeString("en-EG", { hour: "2-digit", minute: "2-digit" });
 }
 
 type ViewFilter = "all" | "present" | "absent" | "left_early";
 
 export default function DoctorSessionHistory() {
-  const { user }                            = useAuth();
-  const { courses, users, enrollments }     = useMockData();
-  const { attendanceEvents }                = useSocket();
+  const { user } = useAuth();
+  const { courses, enrollments, users } = useMockData();
 
-  const [selCourse,    setSelCourse]    = useState<string | null>(null);
-  const [selSession,   setSelSession]   = useState<StoredSession | null>(null);
-  const [viewFilter,   setViewFilter]   = useState<ViewFilter>("all");
-  const [search,       setSearch]       = useState("");
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [attendanceMap, setAttendanceMap] = useState<Record<string, any[]>>({});
+  const [selCourse, setSelCourse] = useState<string | null>(null);
+  const [selSession, setSelSession] = useState<any | null>(null);
+  const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const myCourses = courses.filter(c => c.doctorId === user?.id);
 
-  // Load this doctor's sessions from localStorage
-  const loadDoctorSessions = (): StoredSession[] => {
-    const all: StoredSession[] = [];
-    try {
-      const raw = localStorage.getItem("geo_sessions_" + user?.id);
-      if (raw) {
-        const sessions = JSON.parse(raw) as StoredSession[];
-        all.push(...sessions.filter(s => !s.isActive));
-      }
-    } catch { }
-    // Also include admin-started sessions for this doctor's courses
-    try {
-      const adminRaw = localStorage.getItem("geo_admin_sessions");
-      if (adminRaw) {
-        const adminSessions = JSON.parse(adminRaw) as StoredSession[];
-        const myCourseIds   = myCourses.map(c => c.id);
-        all.push(...adminSessions.filter(s => !s.isActive && myCourseIds.includes(s.courseId)));
-      }
-    } catch { }
-    const seen = new Set<string>();
-    return all
-      .filter(s => { if (seen.has(s.id)) return false; seen.add(s.id); return true; })
-      .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-  };
+  // ── Load doctor's ENDED sessions from Firestore ──────────────────────────────
+  useEffect(() => {
+    if (!user?.id) return;
+    setLoading(true);
+    const q = query(
+      collection(db, "sessions"),
+      where("professorId", "==", user.id)
+    );
+    const unsub = onSnapshot(q, snap => {
+      const all = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter((s: any) => s.status === "ENDED" || s.status === "ended" || s.isActive === false)
+        .sort((a: any, b: any) => {
+          const tA = a.startTime?.toDate?.()?.getTime() || new Date(a.startTime || 0).getTime();
+          const tB = b.startTime?.toDate?.()?.getTime() || new Date(b.startTime || 0).getTime();
+          return tB - tA;
+        });
+      setSessions(all);
+      setLoading(false);
+    }, () => setLoading(false));
+    return () => unsub();
+  }, [user?.id]);
 
-  const allSessions    = loadDoctorSessions();
-  const courseSessions = selCourse ? allSessions.filter(s => s.courseId === selCourse) : allSessions;
+  // ── Load attendance for selected session ─────────────────────────────────────
+  useEffect(() => {
+    if (!selSession) return;
+    if (attendanceMap[selSession.id]) return; // already loaded
 
-  // Get attendees for a session
-  const getSessionAttendees = (session: StoredSession): StoredAttendee[] => {
-    // Try stored attendees first (saved when session ended)
-    if (session.attendees && session.attendees.length > 0) {
-      // Normalize: AttendanceEvent has status directly, StoredAttendee maps "left" differently
-      return session.attendees.map((a: any) => ({
-        studentId:   a.studentId,
-        studentName: a.studentName,
-        timestamp:   a.timestamp,
-        geoStatus:   a.geoStatus,
-        status:      a.status || "present",
-        leftAt:      a.leftAt,
-      }));
-    }
-    // Fallback: SocketContext live events
-    return attendanceEvents
-      .filter(e => e.sessionId === session.id)
-      .map(e => ({
-        studentId:   e.studentId, studentName: e.studentName,
-        timestamp:   e.timestamp, geoStatus:   e.geoStatus,
-        status:      e.status || "present", leftAt: e.leftAt,
-      }));
-  };
+    getDocs(query(collection(db, "attendance"), where("sessionId", "==", selSession.id))).then(snap => {
+      const att = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAttendanceMap(prev => ({ ...prev, [selSession.id]: att }));
+    }).catch(() => {});
+  }, [selSession]);
+
+  const courseSessions = selCourse ? sessions.filter(s => s.courseId === selCourse) : sessions;
+
+  const getAttendees = (sess: any) => attendanceMap[sess.id] || [];
 
   const getEnrolledStudents = (courseId: string) => {
     const ids = enrollments.filter(e => e.courseId === courseId).map(e => e.studentId);
     return users.filter(u => ids.includes(u.id));
   };
 
-  const getAttendeeStatus = (a: StoredAttendee) => {
-    if (a.status === "kicked") return "kicked";
-    if (a.status === "left")   return "left_early";
+  const getStatus = (att: any) => {
+    if (!att) return "absent";
+    if (att.status === "kicked") return "kicked";
+    if (att.status === "left") return "left_early";
     return "present";
   };
 
-  const buildStudentList = (session: StoredSession) => {
-    const attendees    = getSessionAttendees(session);
-    const enrolled     = getEnrolledStudents(session.courseId);
-    const attendeeMap  = new Map(attendees.map(a => [a.studentId, a]));
-    return enrolled.map(student => {
-      const att = attendeeMap.get(student.id);
-      return {
-        student,
-        status:    att ? getAttendeeStatus(att) : "absent",
-        timestamp: att?.timestamp,
-        leftAt:    att?.leftAt,
-        geoStatus: att?.geoStatus,
-      };
+  const buildStudentList = (sess: any) => {
+    const attendees = getAttendees(sess);
+    const enrolled = getEnrolledStudents(sess.courseId);
+    const attMap = new Map(attendees.map((a: any) => [a.studentId, a]));
+    return enrolled.map(stu => {
+      const att = attMap.get(stu.id) as any;
+      return { student: stu, status: getStatus(att), timestamp: att?.timestamp, leftAt: att?.leftAt, geoStatus: att?.geoStatus };
     });
   };
 
-  const filterBtns: { id: ViewFilter; label: string; color: string; activeBg: string }[] = [
-    { id: "all",        label: "All",        color: "text-white",       activeBg: "bg-slate-700 border-slate-600"         },
-    { id: "present",    label: "Present",    color: "text-[#00D084]",   activeBg: "bg-[#00D084]/10 border-[#00D084]/30"   },
-    { id: "absent",     label: "Absent",     color: "text-red-400",     activeBg: "bg-red-500/10 border-red-500/30"       },
-    { id: "left_early", label: "Left Early", color: "text-yellow-400",  activeBg: "bg-yellow-500/10 border-yellow-500/30" },
+  const filterBtns: { id: ViewFilter; label: string; activeBg: string }[] = [
+    { id: "all",        label: "All",        activeBg: "bg-slate-700 border-slate-600"         },
+    { id: "present",    label: "Present",    activeBg: "bg-[#00D084]/10 border-[#00D084]/30"   },
+    { id: "absent",     label: "Absent",     activeBg: "bg-red-500/10 border-red-500/30"       },
+    { id: "left_early", label: "Left Early", activeBg: "bg-yellow-500/10 border-yellow-500/30" },
   ];
+
+  const studentList = selSession ? buildStudentList(selSession) : [];
+  const filtered = studentList.filter(r => {
+    if (viewFilter !== "all" && r.status !== viewFilter) return false;
+    const q = search.toLowerCase();
+    const name = `${(r.student as any).firstName || ""} ${(r.student as any).lastName || ""}`.toLowerCase();
+    return !q || name.includes(q);
+  });
 
   return (
     <div>
@@ -140,7 +123,7 @@ export default function DoctorSessionHistory() {
         </div>
         <div className="flex items-center gap-2 text-sm text-slate-400">
           <Radio className="w-4 h-4 text-blue-400"/>
-          <span>{allSessions.length} sessions total</span>
+          <span>{sessions.length} sessions total</span>
         </div>
       </div>
 
@@ -161,10 +144,9 @@ export default function DoctorSessionHistory() {
         </div>
       </div>
 
-      {/* Main layout: List + Detail */}
+      {/* Main Layout */}
       <div className="flex flex-col lg:flex-row gap-6">
-
-        {/* ── Session List (left) ── */}
+        {/* Session List */}
         <div className="lg:w-80 flex-shrink-0">
           <div className="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
@@ -174,24 +156,27 @@ export default function DoctorSessionHistory() {
               <span className="text-xs text-slate-500">{courseSessions.length}</span>
             </div>
             <div className="overflow-y-auto max-h-[600px]">
-              {courseSessions.length === 0 ? (
+              {loading ? (
+                <div className="text-center py-12 text-slate-500 text-sm">Loading...</div>
+              ) : courseSessions.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
                   <Calendar className="w-8 h-8 mx-auto mb-2 opacity-30"/>
                   <p className="text-sm">No completed sessions yet</p>
                 </div>
-              ) : courseSessions.map((s, idx) => {
-                const attendees  = getSessionAttendees(s);
-                const enrolled   = getEnrolledStudents(s.courseId).length;
-                const present    = attendees.filter(a => a.status !== "left" && a.status !== "kicked").length;
-                const pct        = enrolled > 0 ? Math.round((present / enrolled) * 100) : 0;
+              ) : courseSessions.map((s: any, idx) => {
                 const isSelected = selSession?.id === s.id;
+                const course = myCourses.find(c => c.id === s.courseId);
+                const enrolled = getEnrolledStudents(s.courseId).length;
+                const atts = getAttendees(s);
+                const present = atts.filter((a: any) => a.status !== "left" && a.status !== "kicked").length;
+                const pct = enrolled > 0 ? Math.round((present / enrolled) * 100) : 0;
                 return (
-                  <button key={s.id} onClick={() => setSelSession(s)}
+                  <button key={s.id} onClick={() => { setSelSession(s); setViewFilter("all"); setSearch(""); }}
                     className={`w-full text-left px-5 py-4 border-b border-slate-800/50 last:border-0 transition-all hover:bg-slate-800/40 ${isSelected ? "bg-blue-500/10 border-l-2 border-l-blue-500" : ""}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <p className="text-white font-semibold text-sm truncate">{s.courseName}</p>
-                        <p className="text-blue-400 text-xs font-mono">{s.courseCode} #{String(courseSessions.length - idx).padStart(2, "0")}</p>
+                        <p className="text-white font-semibold text-sm truncate">{s.courseName || course?.name || "—"}</p>
+                        <p className="text-blue-400 text-xs font-mono">{s.courseCode || course?.code} #{String(courseSessions.length - idx).padStart(2, "0")}</p>
                         <p className="text-slate-500 text-xs mt-1">{fmt(s.startTime)}</p>
                         {s.endTime && <p className="text-slate-600 text-xs">→ {fmt(s.endTime)}</p>}
                       </div>
@@ -207,122 +192,106 @@ export default function DoctorSessionHistory() {
           </div>
         </div>
 
-        {/* ── Session Detail (right) ── */}
-        {selSession ? (() => {
-          const students  = buildStudentList(selSession);
-          const present   = students.filter(s => s.status === "present");
-          const absent    = students.filter(s => s.status === "absent");
-          const leftEarly = students.filter(s => s.status === "left_early");
-          const kicked    = students.filter(s => s.status === "kicked");
-          const pct       = students.length > 0 ? Math.round((present.length / students.length) * 100) : 0;
-
-          const filtered = students.filter(s => {
-            const matchFilter =
-              viewFilter === "all"        ? true :
-              viewFilter === "present"    ? s.status === "present" :
-              viewFilter === "absent"     ? s.status === "absent" :
-              viewFilter === "left_early" ? (s.status === "left_early" || s.status === "kicked") : true;
-            const q = search.toLowerCase();
-            const matchSearch = !search
-              || s.student.firstName.toLowerCase().includes(q)
-              || s.student.lastName.toLowerCase().includes(q)
-              || ((s.student as any).studentID || "").includes(q);
-            return matchFilter && matchSearch;
-          });
-
-          return (
-            <div className="flex-1 bg-[#111827] border border-slate-800 rounded-xl overflow-hidden">
-              {/* Detail Header */}
-              <div className="px-6 py-5 border-b border-slate-800 flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-white font-bold text-xl">{selSession.courseName}</h2>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-slate-400">
-                    <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5"/>Started: {fmt(selSession.startTime)}</span>
-                    {selSession.endTime && <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5"/>Ended: {fmt(selSession.endTime)}</span>}
-                    {selSession.geoEnabled && <span className="text-blue-400">📍 Geo ({selSession.radiusMeters}m)</span>}
-                  </div>
-                </div>
-                <button onClick={() => setSelSession(null)} className="text-slate-400 hover:text-white flex-shrink-0"><X className="w-5 h-5"/></button>
-              </div>
-
-              {/* Stats row */}
-              <div className="flex gap-4 px-6 py-4 border-b border-slate-800 flex-wrap">
-                {[
-                  { l: "Total",      v: students.length,              c: "text-white",      b: "bg-slate-800/50 border-slate-700"          },
-                  { l: "Present",    v: present.length,               c: "text-[#00D084]",  b: "bg-[#00D084]/10 border-[#00D084]/20"       },
-                  { l: "Absent",     v: absent.length,                c: "text-red-400",    b: "bg-red-500/10 border-red-500/20"           },
-                  { l: "Left Early", v: leftEarly.length+kicked.length, c: "text-yellow-400", b: "bg-yellow-500/10 border-yellow-500/20"   },
-                  { l: "Rate",       v: pct + "%",                    c: pct>=70?"text-[#00D084]":pct>=50?"text-yellow-400":"text-red-400",
-                    b: "bg-blue-500/10 border-blue-500/20" },
-                ].map(s => (
-                  <div key={s.l} className={`flex-1 min-w-[70px] text-center rounded-xl border py-3 ${s.b}`}>
-                    <p className={`text-xl font-bold ${s.c}`}>{s.v}</p>
-                    <p className="text-slate-400 text-xs mt-0.5">{s.l}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Filter + Search row */}
-              <div className="px-6 py-3 border-b border-slate-800 flex items-center gap-2 flex-wrap">
-                <div className="flex gap-1">
-                  {filterBtns.map(f => (
-                    <button key={f.id} onClick={() => setViewFilter(f.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${viewFilter === f.id ? f.color + " " + f.activeBg : "text-slate-500 border-transparent hover:border-slate-700"}`}>
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="relative ml-auto">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500"/>
-                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or ID..."
-                    className="bg-[#1E293B] border border-slate-700 text-white pl-8 pr-4 py-1.5 rounded-lg text-xs focus:outline-none focus:border-blue-500 w-52"/>
-                </div>
-              </div>
-
-              {/* Student rows */}
-              <div className="overflow-y-auto max-h-[440px]">
-                {filtered.length === 0 ? (
-                  <p className="text-slate-500 text-center py-10 text-sm">No students match filter</p>
-                ) : filtered.map(({ student, status, timestamp, leftAt }) => (
-                  <div key={student.id} className="flex items-center gap-3 px-6 py-3 border-b border-slate-800/50 last:border-0 hover:bg-slate-800/20 transition-colors">
-                    {/* Avatar */}
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                      status === "present"    ? "bg-[#00D084]/20 text-[#00D084]" :
-                      status === "absent"     ? "bg-red-500/20 text-red-400" :
-                      status === "kicked"     ? "bg-red-500/30 text-red-300" :
-                      "bg-yellow-500/20 text-yellow-400"
-                    }`}>
-                      {student.firstName[0]}{student.lastName[0]}
-                    </div>
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium">{student.firstName} {student.lastName}</p>
-                      <p className="text-slate-500 text-xs">ID: {(student as any).studentID || "N/A"}</p>
-                    </div>
-                    {/* Status + time */}
-                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                      {status === "present"
-                        ? <span className="text-xs text-[#00D084] bg-[#00D084]/10 border border-[#00D084]/20 px-2 py-0.5 rounded-full flex items-center gap-1"><CheckCircle className="w-3 h-3"/>Present</span>
-                        : status === "absent"
-                        ? <span className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-full flex items-center gap-1"><XCircle className="w-3 h-3"/>Absent</span>
-                        : status === "kicked"
-                        ? <span className="text-xs text-red-300 bg-red-500/15 border border-red-500/30 px-2 py-0.5 rounded-full flex items-center gap-1"><UserX className="w-3 h-3"/>Kicked</span>
-                        : <span className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 px-2 py-0.5 rounded-full flex items-center gap-1"><LogOut className="w-3 h-3"/>Left Early</span>
-                      }
-                      {timestamp && <p className="text-slate-600 text-xs">{fmtTime(timestamp)}{leftAt ? " → " + fmtTime(leftAt) : ""}</p>}
-                    </div>
-                  </div>
-                ))}
+        {/* Detail Panel */}
+        <div className="flex-1 min-w-0">
+          {!selSession ? (
+            <div className="bg-[#111827] border border-slate-800 rounded-xl flex items-center justify-center h-64">
+              <div className="text-center text-slate-500">
+                <BookOpen className="w-10 h-10 mx-auto mb-2 opacity-30"/>
+                <p className="text-sm">Select a session to view details</p>
               </div>
             </div>
-          );
-        })() : (
-          <div className="flex-1 bg-[#111827]/50 border border-dashed border-slate-700 rounded-xl flex flex-col items-center justify-center py-20 text-slate-500">
-            <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-30"/>
-            <p className="font-medium">Select a session to view details</p>
-            <p className="text-sm mt-1 text-slate-600">Click any session from the list on the left</p>
-          </div>
-        )}
+          ) : (
+            <div className="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden">
+              {/* Session header */}
+              <div className="px-6 py-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-white font-bold text-lg">{selSession.courseName}</h2>
+                  <p className="text-slate-400 text-xs mt-0.5">{fmt(selSession.startTime)} {selSession.endTime ? `→ ${fmt(selSession.endTime)}` : ""}</p>
+                </div>
+                <button onClick={() => setSelSession(null)} className="text-slate-400 hover:text-white self-start sm:self-auto"><X className="w-5 h-5"/></button>
+              </div>
+
+              {/* Stats */}
+              <div className="flex gap-3 px-6 py-4 border-b border-slate-800">
+                {(() => {
+                  const list = buildStudentList(selSession);
+                  const presentC = list.filter(r => r.status === "present").length;
+                  const absentC  = list.filter(r => r.status === "absent").length;
+                  const leftC    = list.filter(r => r.status === "left_early").length;
+                  const kickedC  = list.filter(r => r.status === "kicked").length;
+                  return [
+                    { l: "Present", v: presentC,  c: "text-[#00D084]",  b: "bg-[#00D084]/10 border-[#00D084]/20" },
+                    { l: "Absent",  v: absentC,   c: "text-red-400",    b: "bg-red-500/10 border-red-500/20"     },
+                    { l: "Left",    v: leftC,      c: "text-yellow-400", b: "bg-yellow-500/10 border-yellow-500/20" },
+                    { l: "Kicked",  v: kickedC,    c: "text-orange-400", b: "bg-orange-500/10 border-orange-500/20" },
+                    { l: "Total",   v: list.length, c: "text-white",     b: "bg-slate-800/50 border-slate-700" },
+                  ].map(s => (
+                    <div key={s.l} className={`flex-1 text-center rounded-xl border py-2.5 ${s.b}`}>
+                      <p className={`text-xl font-bold ${s.c}`}>{s.v}</p>
+                      <p className="text-slate-400 text-xs">{s.l}</p>
+                    </div>
+                  ));
+                })()}
+              </div>
+
+              {/* Filter + Search */}
+              <div className="px-6 py-3 border-b border-slate-800 flex gap-2 flex-wrap items-center">
+                {filterBtns.map(f => (
+                  <button key={f.id} onClick={() => setViewFilter(f.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${viewFilter === f.id ? f.activeBg + " text-white" : "border-transparent text-slate-500 hover:border-slate-700"}`}>
+                    {f.label}
+                  </button>
+                ))}
+                <div className="relative flex-1 min-w-32">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500"/>
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student..."
+                    className="w-full bg-[#1E293B] border border-slate-700 text-white pl-9 pr-4 py-1.5 rounded-lg text-xs focus:outline-none focus:border-blue-500"/>
+                </div>
+              </div>
+
+              {/* Student list */}
+              <div className="overflow-y-auto max-h-[400px] divide-y divide-slate-800/50">
+                {filtered.length === 0 ? (
+                  <p className="text-slate-500 text-center py-8 text-sm">No students match</p>
+                ) : filtered.map((r, i) => {
+                  const name = `${(r.student as any).firstName || ""} ${(r.student as any).lastName || ""}`.trim() || (r.student as any).fullName || "Student";
+                  return (
+                    <div key={i} className="flex items-center gap-3 px-6 py-3 hover:bg-slate-800/30 transition-colors">
+                      {(r.student as any).profilePicture ? (
+                        <img src={(r.student as any).profilePicture} alt="Profile"
+                          className={`w-9 h-9 rounded-full object-cover flex-shrink-0 border-2 ${
+                            r.status === "present" ? "border-[#00D084]/40"
+                            : r.status === "kicked" ? "border-orange-500/40"
+                            : r.status === "left_early" ? "border-yellow-500/40"
+                            : "border-red-500/40"}`} />
+                      ) : (
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                          r.status === "present" ? "bg-[#00D084]/20 text-[#00D084]"
+                          : r.status === "kicked" ? "bg-orange-500/20 text-orange-400"
+                          : r.status === "left_early" ? "bg-yellow-500/20 text-yellow-400"
+                          : "bg-red-500/20 text-red-400"}` }>
+                          {name.slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium">{name}</p>
+                        <p className="text-slate-500 text-xs">
+                          {r.timestamp ? `Joined ${fmtTime(r.timestamp)}` : "Absent"}
+                          {r.leftAt ? ` · Left ${fmtTime(r.leftAt)}` : ""}
+                        </p>
+                      </div>
+                      {r.status === "kicked"     && <span className="text-xs text-orange-400 bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 rounded-full flex items-center gap-1"><UserX className="w-3 h-3"/>Kicked</span>}
+                      {r.status === "left_early" && <span className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 px-2 py-0.5 rounded-full flex items-center gap-1"><LogOut className="w-3 h-3"/>Left Early</span>}
+                      {r.status === "present"    && <span className="text-xs text-[#00D084] bg-[#00D084]/10 border border-[#00D084]/20 px-2 py-0.5 rounded-full flex items-center gap-1"><CheckCircle className="w-3 h-3"/>Present</span>}
+                      {r.status === "absent"     && <span className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-full flex items-center gap-1"><XCircle className="w-3 h-3"/>Absent</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

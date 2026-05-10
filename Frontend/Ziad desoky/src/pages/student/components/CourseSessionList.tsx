@@ -1,43 +1,79 @@
-import { useMemo } from "react";
+/**
+ * CourseSessionList — reads from Firestore instead of localStorage
+ */
+import { useState, useEffect, useMemo } from "react";
 import { CheckCircle, XCircle, LogOut } from "lucide-react";
+import { db } from "../../../firebase";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+
+function fmtDate(val: any) {
+  if (!val) return "—";
+  const d = val?.toDate ? val.toDate() : new Date(val);
+  return d.toLocaleDateString("en-EG", { month: "short", day: "numeric" });
+}
+function fmtTime(val: any) {
+  if (!val) return "—";
+  const d = val?.toDate ? val.toDate() : new Date(val);
+  return d.toLocaleTimeString("en-EG", { hour: "2-digit", minute: "2-digit" });
+}
 
 export function CourseSessionList({ courseId, userId, users, attendanceEvents }: {
   courseId: string; userId: string; users: any[]; attendanceEvents: any[];
 }) {
-  const csess = useMemo(() => {
-    const all: any[] = [];
-    const seen = new Set<string>();
-    users.filter((u: any) => u.role === "DOCTOR").forEach((doctor: any) => {
-      try {
-        const raw = localStorage.getItem("geo_sessions_" + doctor.id);
-        if (raw) {
-          JSON.parse(raw).filter((x: any) => x.courseId === courseId && !x.isActive).forEach((s: any) => {
-            if (!seen.has(s.id)) { seen.add(s.id); all.push(s); }
-          });
-        }
-      } catch { }
-    });
-    try {
-      const ar = localStorage.getItem("geo_admin_sessions");
-      if (ar) {
-        JSON.parse(ar).filter((x: any) => x.courseId === courseId && !x.isActive).forEach((s: any) => {
-          if (!seen.has(s.id)) { seen.add(s.id); all.push(s); }
-        });
-      }
-    } catch { }
-    return all.sort((a: any, b: any) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-  }, [courseId, users]);
+  const [sessions,    setSessions]    = useState<any[]>([]);
+  const [attendance,  setAttendance]  = useState<any[]>([]);
 
-  if (csess.length === 0) return <p className="text-slate-500 text-sm text-center py-6">No sessions recorded yet.</p>;
+  // Load ended sessions for this course
+  useEffect(() => {
+    if (!courseId) return;
+    const q = query(collection(db, "sessions"), where("courseId", "==", courseId));
+    const unsub = onSnapshot(q, snap => {
+      const ended = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter((s: any) => s.status === "ENDED" || s.status === "ended" || s.isActive === false)
+        .sort((a: any, b: any) => {
+          const tA = a.startTime?.toDate?.()?.getTime() || new Date(a.startTime || 0).getTime();
+          const tB = b.startTime?.toDate?.()?.getTime() || new Date(b.startTime || 0).getTime();
+          return tB - tA;
+        });
+      setSessions(ended);
+    }, () => {});
+    return () => unsub();
+  }, [courseId]);
+
+  // Load this student's attendance for this course
+  useEffect(() => {
+    if (!userId || !courseId) return;
+    const q = query(
+      collection(db, "attendance"),
+      where("studentId", "==", userId),
+      where("courseId", "==", courseId)
+    );
+    const unsub = onSnapshot(q, snap => {
+      setAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, () => {});
+    return () => unsub();
+  }, [userId, courseId]);
+
+  const attBySession = useMemo(() => {
+    const map = new Map<string, any>();
+    attendance.forEach((a: any) => { if (a.sessionId) map.set(a.sessionId, a); });
+    // Also include socket events
+    attendanceEvents
+      .filter((e: any) => e.studentId === userId && e.courseId === courseId)
+      .forEach((e: any) => { if (!map.has(e.sessionId)) map.set(e.sessionId, e); });
+    return map;
+  }, [attendance.length, attendanceEvents.length, userId, courseId]);
+
+  if (sessions.length === 0) return (
+    <p className="text-slate-500 text-sm text-center py-6">No sessions recorded yet.</p>
+  );
 
   return (
     <div className="divide-y divide-slate-800/60">
-      {csess.map((sess: any, idx: number) => {
-        const myAttendee = sess.attendees?.find((a: any) => a.studentId === userId);
-        const myEvent = !myAttendee ? attendanceEvents.find((e: any) => e.sessionId === sess.id && e.studentId === userId) : null;
-        const myStatus: string = myAttendee?.status || myEvent?.status || (myAttendee || myEvent ? "present" : "absent");
-        const sessDate = sess.startTime ? new Date(sess.startTime).toLocaleDateString("en-EG", { month: "short", day: "numeric" }) : "—";
-        const sessTime = sess.startTime ? new Date(sess.startTime).toLocaleTimeString("en-EG", { hour: "2-digit", minute: "2-digit" }) : "—";
+      {sessions.map((sess: any, idx: number) => {
+        const att = attBySession.get(sess.id);
+        const myStatus: string = att?.status || (att ? "present" : "absent");
         return (
           <div key={sess.id} className="flex items-center gap-3 px-5 py-3">
             {myStatus === "present"
@@ -46,8 +82,8 @@ export function CourseSessionList({ courseId, userId, users, attendanceEvents }:
               ? <LogOut className="w-5 h-5 text-yellow-400 flex-shrink-0"/>
               : <XCircle className="w-5 h-5 text-red-400 flex-shrink-0"/>}
             <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-medium">Session #{String(csess.length - idx).padStart(2, "0")}</p>
-              <p className="text-slate-500 text-xs">{sessDate} • {sessTime}</p>
+              <p className="text-white text-sm font-medium">Session #{String(sessions.length - idx).padStart(2, "0")}</p>
+              <p className="text-slate-500 text-xs">{fmtDate(sess.startTime)} • {fmtTime(sess.startTime)}</p>
             </div>
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
               myStatus === "present" ? "bg-[#00D084]/10 text-[#00D084] border-[#00D084]/20" :

@@ -133,10 +133,10 @@ function LectureStudentsPanel({ lecture }: { lecture: Lecture }) {
             return (
               <div key={s!.id} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border text-sm transition-all ${present ? "bg-[#00D084]/5 border-[#00D084]/10" : "bg-slate-800/20 border-slate-800/60"}`}>
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${present ? "bg-[#00D084]/20 text-[#00D084]" : "bg-slate-700 text-slate-400"}`}>
-                  {s!.firstName[0]}{s!.lastName[0]}
+                  {(s!.firstName?.[0] || (s as any)!.fullName?.[0] || "?")}{(s!.lastName?.[0] || "")}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-white text-xs font-medium truncate">{s!.firstName} {s!.lastName}</p>
+                  <p className="text-white text-xs font-medium truncate">{s!.firstName || (s as any)!.fullName?.split(" ")[0]} {s!.lastName || (s as any)!.fullName?.split(" ").slice(1).join(" ")}</p>
                   <p className="text-slate-500 text-xs">{s!.studentID || s!.email}</p>
                 </div>
                 <span className={`text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${present ? "bg-[#00D084]/10 text-[#00D084] border-[#00D084]/20" : "bg-red-500/10 text-red-400 border-red-500/20"}`}>

@@ -6,7 +6,7 @@ import { useAuth } from "../../context/AuthContext";
 import type { User } from "../../context/AuthContext";
 import Breadcrumbs from "../../components/Breadcrumbs";
 import { db } from "../../firebase";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, doc, updateDoc } from "firebase/firestore";
 
 /* ── Delete Confirm Modal ── */
 function DeleteModal({ user, onConfirm, onCancel }: { user: User; onConfirm: () => void; onCancel: () => void }) {
@@ -82,9 +82,10 @@ function EditModal({ user, onSave, onCancel }: { user: User; onSave: (data: Part
 }
 
 /* ── Action Dropdown ── */
-function ActionMenu({ targetUser, onClose, onEdit, onDelete }: {
+function ActionMenu({ targetUser, onClose, onEdit, onDelete, onRemovePhoto }: {
   targetUser: User; onClose: () => void;
   onEdit: () => void; onDelete: () => void;
+  onRemovePhoto: () => void;
 }) {
   const { user: me } = useAuth();
   const { banUser, unbanUser, promoteToAdmin, demoteFromAdmin } = useMockData();
@@ -101,6 +102,12 @@ function ActionMenu({ targetUser, onClose, onEdit, onDelete }: {
             className="w-full flex items-center gap-2 px-4 py-3 text-sm text-blue-400 hover:bg-slate-700 transition-colors">
             <Edit3 className="w-4 h-4" />Edit User
           </button>
+          {targetUser.profilePicture && (
+            <button onClick={() => { onRemovePhoto(); onClose(); }}
+              className="w-full flex items-center gap-2 px-4 py-3 text-sm text-yellow-400 hover:bg-slate-700 transition-colors border-t border-slate-700/50">
+              <UserX className="w-4 h-4" />Remove Photo
+            </button>
+          )}
           {targetUser.isBanned ? (
             <button onClick={() => { unbanUser(targetUser.id); onClose(); }}
               className="w-full flex items-center gap-2 px-4 py-3 text-sm text-green-400 hover:bg-slate-700 transition-colors border-t border-slate-700/50">
@@ -188,6 +195,7 @@ export default function AdminUsers() {
         studentID: u.studentId || u.studentID || "",
         department: u.department || "",
         isBanned: u.isBanned || false,
+        profilePicture: u.profilePicture || undefined,
       };
       mergedMap.set(mapped.id, mapped);
     });
@@ -204,6 +212,7 @@ export default function AdminUsers() {
         studentID: u.studentId || u.studentID || "",
         department: u.department || "",
         isBanned: u.isBanned || !u.isActive,
+        profilePicture: u.profilePicture || undefined,
       };
       mergedMap.set(id, mapped);
     });
@@ -216,6 +225,16 @@ export default function AdminUsers() {
   const [openMenu,     setOpenMenu]     = useState<string | null>(null);
   const [editUser,     setEditUser]     = useState<User | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+
+  const removeUserPhoto = async (userId: string) => {
+    updateUserInList(userId, { profilePicture: undefined } as any);
+    try {
+      const { setDoc } = await import("firebase/firestore");
+      await setDoc(doc(db, "users", userId), { profilePicture: null }, { merge: true });
+    } catch (err) {
+      console.error("Failed to remove photo in firestore", err);
+    }
+  };
 
   const filtered = users.filter(u => {
     const q = search.toLowerCase();
@@ -302,11 +321,15 @@ export default function AdminUsers() {
                   <tr key={u.id} className="border-b border-slate-800/50 hover:bg-slate-800/20 transition-colors">
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                          u.role === "ADMIN" ? "bg-purple-500/20 text-purple-400" :
-                          u.role === "DOCTOR" ? "bg-blue-500/20 text-blue-400" : "bg-[#00D084]/20 text-[#00D084]"
-                        }`}>{u.firstName[0]}{u.lastName[0]}</div>
-                        <span className="text-white font-medium text-sm">{u.firstName} {u.lastName}</span>
+                        {u.profilePicture ? (
+                          <img src={u.profilePicture} alt="Profile" className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-slate-600" />
+                        ) : (
+                          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                            u.role === "ADMIN" ? "bg-purple-500/20 text-purple-400" :
+                            u.role === "DOCTOR" ? "bg-blue-500/20 text-blue-400" : "bg-[#00D084]/20 text-[#00D084]"
+                          }`}>{(u.firstName?.[0] || u.fullName?.[0] || "?")}{(u.lastName?.[0] || "")}</div>
+                        )}
+                        <span className="text-white font-medium text-sm">{u.firstName || (u.fullName || "").split(" ")[0]} {u.lastName || (u.fullName || "").split(" ").slice(1).join(" ")}</span>
                       </div>
                     </td>
                     <td className="px-5 py-4 text-slate-400 text-sm">{u.email}</td>
@@ -333,7 +356,8 @@ export default function AdminUsers() {
                           <ActionMenu targetUser={u}
                             onClose={() => setOpenMenu(null)}
                             onEdit={() => setEditUser(u)}
-                            onDelete={() => setDeleteTarget(u)} />
+                            onDelete={() => setDeleteTarget(u)}
+                            onRemovePhoto={() => removeUserPhoto(u.id)} />
                         )}
                       </div>
                     </td>

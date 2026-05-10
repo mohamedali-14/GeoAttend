@@ -1,24 +1,31 @@
 /**
- * DoctorAttendanceReport
- * Features: Doctor Stats API, Attendance report table, Bar charts,
- *           CSV export, Date+Status filters, Print styles
+ * DoctorAttendanceReport — reads from Firestore instead of localStorage
  */
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   BarChart2, Download, Printer, Filter, X, Search,
-  CheckCircle, XCircle, UserX, LogOut, TrendingUp,
+  CheckCircle, XCircle, UserX, LogOut,
   Users, Calendar, BookOpen, Award
 } from "lucide-react";
+import { db } from "../../firebase";
+import { collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
 import { useAuth } from "../../context/AuthContext";
 import { useMockData } from "../../context/MockDataContext";
-import { useSocket } from "../../context/SocketContext";
 
-function fmt(iso: string) {
-  return new Date(iso).toLocaleString("en-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+function fmtDisplay(val: any) {
+  if (!val) return "—";
+  const d = val?.toDate ? val.toDate() : new Date(val);
+  return d.toLocaleString("en-EG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
-function fmtDate(iso: string) { return new Date(iso).toISOString().split("T")[0]; }
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-EG", { hour: "2-digit", minute: "2-digit" });
+function fmtDate(val: any) {
+  if (!val) return "";
+  const d = val?.toDate ? val.toDate() : new Date(val);
+  return d.toISOString().split("T")[0];
+}
+function fmtTime(val: any) {
+  if (!val) return "—";
+  const d = val?.toDate ? val.toDate() : new Date(val);
+  return d.toLocaleTimeString("en-EG", { hour: "2-digit", minute: "2-digit" });
 }
 
 function exportCSV(rows: any[], filename: string) {
@@ -63,9 +70,12 @@ function BarChart({ data }: { data: { label: string; present: number; total: num
 }
 
 export default function DoctorAttendanceReport() {
-  const { user }                        = useAuth();
-  const { courses, users, enrollments } = useMockData();
-  const { attendanceEvents }            = useSocket();
+  const { user } = useAuth();
+  const { courses, enrollments, users } = useMockData();
+
+  const [sessions,     setSessions]     = useState<any[]>([]);
+  const [allAttendance, setAllAttendance] = useState<any[]>([]);
+  const [loading,      setLoading]      = useState(true);
 
   const [dateFrom,   setDateFrom]   = useState("");
   const [dateTo,     setDateTo]     = useState("");
@@ -73,83 +83,105 @@ export default function DoctorAttendanceReport() {
   const [search,     setSearch]     = useState("");
   const [selCourse,  setSelCourse]  = useState<string>("all");
 
-  const myCourses = courses.filter(c => c.doctorId === user?.id);
+  const myCourses    = courses.filter(c => c.doctorId === user?.id);
+  const myCourseIds  = new Set(myCourses.map(c => c.id));
 
-  // Load all ended sessions from localStorage
-  const allSessions = useMemo(() => {
-    const all: any[] = [];
-    const seen = new Set<string>();
-    const myCourseIds = new Set(myCourses.map(c => c.id));
-    users.filter(u => u.role === "DOCTOR").forEach(doc => {
-      try {
-        const raw = localStorage.getItem("geo_sessions_" + doc.id);
-        if (raw) JSON.parse(raw).filter((s: any) => !s.isActive && myCourseIds.has(s.courseId))
-          .forEach((s: any) => { if (!seen.has(s.id)) { seen.add(s.id); all.push(s); } });
-      } catch { }
-    });
-    try {
-      const ar = localStorage.getItem("geo_admin_sessions");
-      if (ar) JSON.parse(ar).filter((s: any) => !s.isActive && myCourseIds.has(s.courseId))
-        .forEach((s: any) => { if (!seen.has(s.id)) { seen.add(s.id); all.push(s); } });
-    } catch { }
-    return all.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-  }, [myCourses.length, users.length]);
+  // ── Load ENDED sessions for this doctor ──────────────────────────────────────
+  useEffect(() => {
+    if (!user?.id) return;
+    setLoading(true);
+    const q = query(collection(db, "sessions"), where("professorId", "==", user.id));
+    const unsub = onSnapshot(q, snap => {
+      const ended = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter((s: any) => s.status === "ENDED" || s.status === "ended" || s.isActive === false);
+      setSessions(ended);
+      setLoading(false);
+    }, () => setLoading(false));
+    return () => unsub();
+  }, [user?.id]);
 
-  // Apply date + course filters
-  const filtered = useMemo(() => allSessions.filter(s => {
+  // ── Load all attendance for doctor's courses ──────────────────────────────────
+  useEffect(() => {
+    if (!user?.id || sessions.length === 0) return;
+    const sessionIds = sessions.map((s: any) => s.id);
+    // Firestore "in" query supports up to 30 items; chunk if needed
+    const chunks: string[][] = [];
+    for (let i = 0; i < sessionIds.length; i += 30) chunks.push(sessionIds.slice(i, i + 30));
+
+    Promise.all(
+      chunks.map(chunk =>
+        getDocs(query(collection(db, "attendance"), where("sessionId", "in", chunk)))
+      )
+    ).then(results => {
+      const all = results.flatMap(snap => snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setAllAttendance(all);
+    }).catch(() => {});
+  }, [sessions.length]);
+
+  // ── Build flat rows ──────────────────────────────────────────────────────────
+  const allRows = useMemo(() => {
+    const result: any[] = [];
+    sessions
+      .filter((s: any) => myCourseIds.has(s.courseId))
+      .forEach((sess: any) => {
+        const course   = myCourses.find(c => c.id === sess.courseId);
+        const enrolled = enrollments.filter(e => e.courseId === sess.courseId).map(e => e.studentId);
+        const students = users.filter(u => enrolled.includes(u.id));
+        const attMap   = new Map(allAttendance.filter((a: any) => a.sessionId === sess.id).map((a: any) => [a.studentId, a]));
+
+        students.forEach(stu => {
+          const att    = attMap.get(stu.id) as any;
+          const raw    = att?.status;
+          const status = raw === "kicked" ? "kicked" : att ? "present" : "absent";
+          result.push({
+            studentId: stu.id,
+            name:      `${(stu as any).firstName || ""} ${(stu as any).lastName || ""}`.trim() || (stu as any).fullName || "Student",
+            sid:       (stu as any).studentID || stu.id.slice(-6),
+            profilePicture: (stu as any).profilePicture || null,
+            status,
+            time:      att?.timestamp ? fmtTime(att.timestamp) : "—",
+            course:    course?.code || "",
+            courseName:course?.name || "",
+            session:   fmtDisplay(sess.startTime),
+            sessionDate: fmtDate(sess.startTime),
+          });
+        });
+      });
+    return result;
+  }, [sessions.length, allAttendance.length, users.length, enrollments.length]);
+
+  // ── Apply filters ────────────────────────────────────────────────────────────
+  const filteredSessions = sessions.filter(s => {
+    if (!myCourseIds.has(s.courseId)) return false;
     const d = fmtDate(s.startTime);
     if (dateFrom && d < dateFrom) return false;
     if (dateTo   && d > dateTo)   return false;
     if (selCourse !== "all" && s.courseId !== selCourse) return false;
     return true;
-  }), [allSessions.length, dateFrom, dateTo, selCourse]);
+  });
 
-  // Build flat student rows for the table
-  const rows = useMemo(() => {
-    const result: any[] = [];
-    filtered.forEach(sess => {
-      const course  = myCourses.find(c => c.id === sess.courseId);
-      const enrolled = enrollments.filter(e => e.courseId === sess.courseId).map(e => e.studentId);
-      const students = users.filter(u => enrolled.includes(u.id));
-      const attMap   = new Map((sess.attendees || []).map((a: any) => [a.studentId, a]));
+  const filteredSessionIds = new Set(filteredSessions.map((s: any) => s.id));
 
-      students.forEach(stu => {
-        const att = attMap.get(stu.id) as any;
-        const evnt = !att ? attendanceEvents.find(e => e.sessionId === sess.id && e.studentId === stu.id) : null;
-        const raw  = att?.status || evnt?.status;
-        const status = raw === "kicked" ? "kicked" : (att || evnt) && raw !== "kicked" ? "present" : "absent";
-        result.push({
-          studentId: stu.id,
-          name: `${stu.firstName} ${stu.lastName}`,
-          sid:  (stu as any).studentID || stu.id.slice(-6),
-          status,
-          time: att?.timestamp || evnt?.timestamp ? fmtTime(att?.timestamp || evnt?.timestamp) : "—",
-          course: course?.code || "",
-          courseName: course?.name || "",
-          session: fmt(sess.startTime),
-          sessionDate: fmtDate(sess.startTime),
-        });
-      });
-    });
-    return result;
-  }, [filtered.length, users.length, enrollments.length, attendanceEvents.length]);
-
-  // Apply status + search filter
-  const tableRows = rows.filter(r => {
+  const tableRows = allRows.filter(r => {
+    const sess = sessions.find((s: any) => s.id === r.sessionId || filteredSessionIds.has(s.id));
+    // Match session filter
+    const d = r.sessionDate;
+    if (dateFrom && d < dateFrom) return false;
+    if (dateTo   && d > dateTo)   return false;
+    if (selCourse !== "all" && r.course !== myCourses.find(c => c.id === selCourse)?.code) return false;
     if (statusFilt !== "all" && r.status !== (statusFilt === "left_early" ? "left" : statusFilt)) return false;
     const q = search.toLowerCase();
     return !q || r.name.toLowerCase().includes(q) || r.sid.includes(q) || r.course.toLowerCase().includes(q);
   });
 
-  // Stats
-  const totalSessions  = filtered.length;
-  const totalPresent   = rows.filter(r => r.status === "present").length;
-  const totalStudents  = rows.length;
+  const totalSessions  = filteredSessions.length;
+  const totalPresent   = tableRows.filter(r => r.status === "present").length;
+  const totalStudents  = tableRows.length;
   const avgPct = totalStudents > 0 ? Math.round((totalPresent / totalStudents) * 100) : 0;
 
-  // Chart data per course
   const chartData = myCourses.map(c => {
-    const cRows = rows.filter(r => r.course === c.code);
+    const cRows = allRows.filter(r => r.course === c.code);
     return { label: c.code, present: cRows.filter(r => r.status === "present").length, total: cRows.length };
   }).filter(d => d.total > 0);
 
@@ -157,13 +189,7 @@ export default function DoctorAttendanceReport() {
 
   return (
     <div>
-      <style>{`
-        @media print {
-          .no-print { display: none !important; }
-          body { background: white !important; color: black !important; }
-          .print-white { background: white !important; border: 1px solid #ccc !important; color: black !important; }
-        }
-      `}</style>
+      <style>{`@media print { .no-print { display: none !important; } body { background: white !important; color: black !important; } .print-white { background: white !important; border: 1px solid #ccc !important; color: black !important; } }`}</style>
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6 pb-6 border-b border-slate-800 no-print">
@@ -172,151 +198,130 @@ export default function DoctorAttendanceReport() {
           <p className="text-slate-400 text-sm mt-1">Detailed view of all session attendance data</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 bg-[#00D084]/10 hover:bg-[#00D084]/20 border border-[#00D084]/30 text-[#00D084] text-sm font-semibold rounded-xl transition-all">
+          <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-[#00D084]/10 hover:bg-[#00D084]/20 border border-[#00D084]/30 text-[#00D084] text-sm font-semibold rounded-xl transition-all">
             <Download className="w-4 h-4" />Export CSV
           </button>
-          <button onClick={() => window.print()}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-sm font-semibold rounded-xl transition-all">
+          <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-sm font-semibold rounded-xl transition-all">
             <Printer className="w-4 h-4" />Print
           </button>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {[
-          { label: "Sessions",     value: totalSessions, color: "text-blue-400",  icon: <Calendar className="w-5 h-5" />,  bg: "bg-blue-500/10 border-blue-500/20"   },
-          { label: "Students",     value: totalStudents, color: "text-white",      icon: <Users className="w-5 h-5" />,     bg: "bg-slate-800 border-slate-700"       },
-          { label: "Present",      value: totalPresent,  color: "text-[#00D084]",  icon: <CheckCircle className="w-5 h-5" />, bg: "bg-[#00D084]/10 border-[#00D084]/20" },
-          { label: "Avg Rate",     value: `${avgPct}%`,  color: avgPct>=70?"text-[#00D084]":avgPct>=50?"text-yellow-400":"text-red-400",
-            icon: <Award className="w-5 h-5" />, bg: "bg-indigo-500/10 border-indigo-500/20" },
-        ].map(s => (
-          <div key={s.label} className={`border rounded-xl p-4 print-white ${s.bg}`}>
-            <div className={`mb-2 ${s.color}`}>{s.icon}</div>
-            <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-            <p className="text-slate-400 text-xs mt-0.5">{s.label}</p>
+      {loading ? (
+        <div className="text-center py-12 text-slate-500">Loading data from Firestore...</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            {[
+              { label: "Sessions",  value: totalSessions, color: "text-blue-400",  icon: <Calendar className="w-5 h-5" />,     bg: "bg-blue-500/10 border-blue-500/20"     },
+              { label: "Students",  value: totalStudents, color: "text-white",      icon: <Users className="w-5 h-5" />,        bg: "bg-slate-800 border-slate-700"         },
+              { label: "Present",   value: totalPresent,  color: "text-[#00D084]",  icon: <CheckCircle className="w-5 h-5" />,  bg: "bg-[#00D084]/10 border-[#00D084]/20"   },
+              { label: "Avg Rate",  value: `${avgPct}%`,  color: avgPct>=70?"text-[#00D084]":avgPct>=50?"text-yellow-400":"text-red-400",
+                icon: <Award className="w-5 h-5" />, bg: "bg-indigo-500/10 border-indigo-500/20" },
+            ].map(s => (
+              <div key={s.label} className={`border rounded-xl p-4 print-white ${s.bg}`}>
+                <div className={`mb-2 ${s.color}`}>{s.icon}</div>
+                <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                <p className="text-slate-400 text-xs mt-0.5">{s.label}</p>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {/* Chart + Filters side by side */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        {/* Bar chart */}
-        <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 print-white">
-          <h2 className="text-white font-bold text-sm mb-4 flex items-center gap-2">
-            <BarChart2 className="w-4 h-4 text-[#00D084]" />Attendance by Course
-          </h2>
-          <BarChart data={chartData} />
-        </div>
-
-        {/* Filters */}
-        <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 no-print">
-          <h2 className="text-white font-bold text-sm mb-4 flex items-center gap-2">
-            <Filter className="w-4 h-4 text-blue-400" />Filters
-          </h2>
-          <div className="flex flex-col gap-3">
-            {/* Course filter */}
-            <select value={selCourse} onChange={e => setSelCourse(e.target.value)}
-              className="bg-[#1E293B] border border-slate-700 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-blue-500">
-              <option value="all">All Courses</option>
-              {myCourses.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
-            </select>
-            {/* Date range */}
-            <div className="flex gap-2 items-center">
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                className="flex-1 bg-[#1E293B] border border-slate-700 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-blue-500" />
-              <span className="text-slate-500 text-xs">to</span>
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                className="flex-1 bg-[#1E293B] border border-slate-700 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-blue-500" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 print-white">
+              <h2 className="text-white font-bold text-sm mb-4 flex items-center gap-2"><BarChart2 className="w-4 h-4 text-[#00D084]" />Attendance by Course</h2>
+              <BarChart data={chartData} />
             </div>
-            {/* Status */}
-            <div className="flex gap-2 flex-wrap">
-              {(["all","present","absent","left_early"] as const).map(s => (
-                <button key={s} onClick={() => setStatusFilt(s)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                    statusFilt === s
-                      ? s==="present" ? "bg-[#00D084]/10 text-[#00D084] border-[#00D084]/30"
-                      : s==="absent"  ? "bg-red-500/10 text-red-400 border-red-500/30"
-                      : s==="left_early" ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/30"
-                      : "bg-slate-700 text-white border-slate-600"
-                      : "border-slate-700 text-slate-400 hover:border-slate-600"
-                  }`}>
-                  {s === "left_early" ? "Left Early" : s.charAt(0).toUpperCase() + s.slice(1)}
-                </button>
+            <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 no-print">
+              <h2 className="text-white font-bold text-sm mb-4 flex items-center gap-2"><Filter className="w-4 h-4 text-blue-400" />Filters</h2>
+              <div className="flex flex-col gap-3">
+                <select value={selCourse} onChange={e => setSelCourse(e.target.value)} className="bg-[#1E293B] border border-slate-700 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-blue-500">
+                  <option value="all">All Courses</option>
+                  {myCourses.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
+                </select>
+                <div className="flex gap-2 items-center">
+                  <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="flex-1 bg-[#1E293B] border border-slate-700 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-blue-500" />
+                  <span className="text-slate-500 text-xs">to</span>
+                  <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="flex-1 bg-[#1E293B] border border-slate-700 text-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-blue-500" />
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {(["all","present","absent","left_early"] as const).map(s => (
+                    <button key={s} onClick={() => setStatusFilt(s)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${statusFilt === s
+                        ? s==="present" ? "bg-[#00D084]/10 text-[#00D084] border-[#00D084]/30"
+                        : s==="absent"  ? "bg-red-500/10 text-red-400 border-red-500/30"
+                        : s==="left_early" ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/30"
+                        : "bg-slate-700 text-white border-slate-600"
+                        : "border-slate-700 text-slate-400 hover:border-slate-600"}`}>
+                      {s === "left_early" ? "Left Early" : s.charAt(0).toUpperCase() + s.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or ID..." className="w-full bg-[#1E293B] border border-slate-700 text-white pl-9 pr-4 py-2 rounded-lg text-sm focus:outline-none focus:border-blue-500" />
+                </div>
+                {(dateFrom || dateTo || statusFilt !== "all" || search || selCourse !== "all") && (
+                  <button onClick={() => { setDateFrom(""); setDateTo(""); setStatusFilt("all"); setSearch(""); setSelCourse("all"); }} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 self-start">
+                    <X className="w-3 h-3" />Clear all filters
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden print-white">
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <h2 className="text-white font-bold flex items-center gap-2"><Users className="w-4 h-4 text-blue-400" />Student Records</h2>
+              <span className="text-slate-500 text-sm">{tableRows.length} records</span>
+            </div>
+            <div className="hidden md:grid grid-cols-5 gap-4 px-5 py-3 bg-slate-900/50 border-b border-slate-800 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              <span className="col-span-2">Student</span>
+              <span>Course</span>
+              <span>Session</span>
+              <span>Status</span>
+            </div>
+            <div className="overflow-y-auto max-h-[500px] divide-y divide-slate-800/50">
+              {tableRows.length === 0 ? (
+                <div className="text-center py-16 text-slate-500">
+                  <BookOpen className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                  <p>No records match your filters</p>
+                </div>
+              ) : tableRows.map((r, i) => (
+                <div key={i} className="grid grid-cols-1 md:grid-cols-5 gap-2 md:gap-4 px-5 py-3 hover:bg-slate-800/20 transition-colors items-center">
+                  <div className="md:col-span-2 flex items-center gap-3">
+                    {r.profilePicture ? (
+                      <img src={r.profilePicture} alt="Profile" className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-slate-700" />
+                    ) : (
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${r.status==="present"?"bg-[#00D084]/20 text-[#00D084]":"bg-red-500/20 text-red-400"}`}>
+                        {r.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2)}
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-white text-sm font-medium">{r.name}</p>
+                      <p className="text-slate-500 text-xs">ID: {r.sid}</p>
+                    </div>
+                  </div>
+                  <p className="text-slate-300 text-sm">{r.course}</p>
+                  <p className="text-slate-400 text-xs">{r.session}</p>
+                  <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border w-fit ${
+                    r.status==="present" ? "bg-[#00D084]/10 border-[#00D084]/20 text-[#00D084]"
+                    : r.status==="kicked" ? "bg-orange-500/10 border-orange-500/20 text-orange-400"
+                    : r.status==="left"   ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-400"
+                    : "bg-red-500/10 border-red-500/20 text-red-400"}`}>
+                    {r.status==="present" ? <><CheckCircle className="w-3 h-3"/>Present</>
+                    : r.status==="kicked"  ? <><UserX className="w-3 h-3"/>Kicked</>
+                    : r.status==="left"    ? <><LogOut className="w-3 h-3"/>Left</>
+                    : <><XCircle className="w-3 h-3"/>Absent</>}
+                  </span>
+                </div>
               ))}
             </div>
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
-              <input value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="Search name or ID..."
-                className="w-full bg-[#1E293B] border border-slate-700 text-white pl-9 pr-4 py-2 rounded-lg text-sm focus:outline-none focus:border-blue-500" />
-            </div>
-            {/* Clear */}
-            {(dateFrom || dateTo || statusFilt !== "all" || search || selCourse !== "all") && (
-              <button onClick={() => { setDateFrom(""); setDateTo(""); setStatusFilt("all"); setSearch(""); setSelCourse("all"); }}
-                className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 self-start">
-                <X className="w-3 h-3" />Clear all filters
-              </button>
-            )}
           </div>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden print-white">
-        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-          <h2 className="text-white font-bold flex items-center gap-2">
-            <Users className="w-4 h-4 text-blue-400" />Student Records
-          </h2>
-          <span className="text-slate-500 text-sm">{tableRows.length} records</span>
-        </div>
-
-        {/* Table header */}
-        <div className="hidden md:grid grid-cols-5 gap-4 px-5 py-3 bg-slate-900/50 border-b border-slate-800 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-          <span className="col-span-2">Student</span>
-          <span>Course</span>
-          <span>Session</span>
-          <span>Status</span>
-        </div>
-
-        <div className="overflow-y-auto max-h-[500px] divide-y divide-slate-800/50">
-          {tableRows.length === 0 ? (
-            <div className="text-center py-16 text-slate-500">
-              <BookOpen className="w-10 h-10 mx-auto mb-2 opacity-30" />
-              <p>No records match your filters</p>
-            </div>
-          ) : tableRows.map((r, i) => (
-            <div key={i} className="grid grid-cols-1 md:grid-cols-5 gap-2 md:gap-4 px-5 py-3 hover:bg-slate-800/20 transition-colors items-center">
-              <div className="md:col-span-2 flex items-center gap-3">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                  r.status==="present"?"bg-[#00D084]/20 text-[#00D084]":"bg-red-500/20 text-red-400"
-                }`}>
-                  {r.name.split(" ").map((n: string) => n[0]).join("").slice(0,2)}
-                </div>
-                <div>
-                  <p className="text-white text-sm font-medium">{r.name}</p>
-                  <p className="text-slate-500 text-xs">ID: {r.sid}</p>
-                </div>
-              </div>
-              <p className="text-slate-300 text-sm">{r.course}</p>
-              <p className="text-slate-400 text-xs">{r.session}</p>
-              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border w-fit ${
-                r.status==="present" ? "bg-[#00D084]/10 border-[#00D084]/20 text-[#00D084]"
-                : r.status==="kicked" ? "bg-orange-500/10 border-orange-500/20 text-orange-400"
-                : r.status==="left"   ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-400"
-                : "bg-red-500/10 border-red-500/20 text-red-400"
-              }`}>
-                {r.status==="present" ? <><CheckCircle className="w-3 h-3"/>Present</>
-                : r.status==="kicked"  ? <><UserX className="w-3 h-3"/>Kicked</>
-                : r.status==="left"    ? <><LogOut className="w-3 h-3"/>Left</>
-                : <><XCircle className="w-3 h-3"/>Absent</>}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
