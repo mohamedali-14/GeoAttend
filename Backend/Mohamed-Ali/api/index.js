@@ -1,11 +1,11 @@
 const app = require('../src/app');
 
-// Add direct health endpoint at root level for Vercel
+// Add a direct health endpoint for Vercel
 app.get('/health', (req, res) => {
     res.json({ status: 'OK', message: 'Health check working!' });
 });
 
-// Add test endpoint
+// Add a test endpoint
 app.get('/api/test', (req, res) => {
     res.json({ message: 'API is working!' });
 });
