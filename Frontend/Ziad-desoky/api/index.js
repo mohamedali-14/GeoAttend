@@ -89,3 +89,4 @@ app.use('*', (req, res) => {
 });
 
 module.exports = app;
+
