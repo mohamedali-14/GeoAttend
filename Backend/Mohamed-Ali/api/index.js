@@ -1,24 +1,29 @@
+// Simple working API for Vercel
 const express = require('express');
 const cors = require('cors');
 
 const app = express();
-app.use(cors({ origin: true }));
+app.use(cors());
 app.use(express.json());
 
-// Health check
+// Simple health check
 app.get('/health', (req, res) => {
-    res.json({ status: 'OK', message: 'Backend is working!' });
+    res.json({ status: 'ok', message: 'Backend is working!' });
 });
 
-// Test endpoint
+// Simple test endpoint
 app.get('/test', (req, res) => {
     res.json({ message: 'Test endpoint works!' });
 });
 
-// Auth endpoint (placeholder)
+// Login endpoint
 app.post('/api/auth/login', (req, res) => {
     const { email, password } = req.body;
-    res.json({ success: true, message: 'Login successful', email });
+    res.json({ 
+        success: true, 
+        token: 'test-token-123',
+        user: { email, name: 'Test User', role: 'STUDENT' }
+    });
 });
 
 // Root endpoint
