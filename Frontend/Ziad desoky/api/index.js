@@ -13,4 +13,5 @@ app.get('/', (req, res) => {
     res.json({ message: 'GeoAttend API is ready', endpoints: ['/health'] });
 });
 
+
 module.exports = app;
