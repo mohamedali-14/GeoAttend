@@ -248,27 +248,27 @@ async function endSession(req, res) {
 
         const sessionRef = db.collection('sessions').doc(sessionId);
 
-        // Try to write DIRECTLY to Firestore (writes quota is separate from reads quota)
-        // Skip ownership verification read to avoid hitting read quota
+        // Try to write DIRECTLY to Firestore
         try {
             await sessionRef.update({
                 status: 'ENDED',
                 isActive: false,
-                actualEndTime: new Date(),
-                updatedAt: new Date()
+                actualEndTime: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
             console.log(`[endSession] Session ${sessionId} successfully ended in Firestore`);
             return res.json({ message: 'Session ended', savedToDb: true });
         } catch (writeErr) {
             const code = writeErr.code || writeErr.message;
+            console.error(`[endSession] Firestore write failed:`, writeErr);
             if (code === 5 || String(code).includes('NOT_FOUND')) {
                 return res.status(404).json({ error: 'Session not found in database' });
             }
-            // Write failed (quota or permissions) — log and return success anyway (UI already updated)
-            console.warn(`[endSession] Firestore write failed (${writeErr.message}). Session marked ended client-side only.`);
-            return res.json({ message: 'Session ended (client-side only)', savedToDb: false });
+            // If it fails for another reason, RETURN 500 SO FRONTEND KNOWS!
+            return res.status(500).json({ error: `Failed to update database: ${writeErr.message}` });
         }
     } catch (error) {
+        console.error('[endSession] Fatal error:', error);
         res.status(500).json({ error: error.message });
     }
 }
@@ -298,10 +298,16 @@ async function getSessions(req, res) {
             if (courseId) query = query.where('courseId', '==', courseId);
             if (professorId) query = query.where('professorId', '==', professorId);
             if (status) query = query.where('status', '==', status);
-            const snapshot = await query.orderBy('createdAt', 'desc').get();
+            const snapshot = await query.get();
             sessions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Sort in memory to avoid needing composite indexes in Firestore
+            sessions.sort((a, b) => {
+                const aTime = a.createdAt?.toMillis?.() || new Date(a.createdAt).getTime() || 0;
+                const bTime = b.createdAt?.toMillis?.() || new Date(b.createdAt).getTime() || 0;
+                return bTime - aTime;
+            });
         } catch (dbErr) {
-            console.warn('[getSessions] Firestore quota exceeded. Using only in-memory mock sessions.');
+            console.warn('[getSessions] Firestore query failed:', dbErr.message);
         }
 
         // Merge with in-memory sessions

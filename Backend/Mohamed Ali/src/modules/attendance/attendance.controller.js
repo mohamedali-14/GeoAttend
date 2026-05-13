@@ -273,20 +273,24 @@ async function getNearbySessions(req, res) {
 
 async function getAttendanceHistory(req, res) {
     try {
-        const { courseId, limit = 20, startAfter, semester, year } = req.query;
+        const { courseId, limit = 20, semester, year } = req.query;
         const studentId = req.user.uid;
-        let query = db.collection('attendance').where('studentId', '==', studentId).orderBy('timestamp', 'desc');
+        
+        let query = db.collection('attendance').where('studentId', '==', studentId);
         if (courseId) query = query.where('courseId', '==', courseId);
         if (semester) query = query.where('semester', '==', semester);
         if (year) query = query.where('year', '==', parseInt(year));
-        query = query.limit(parseInt(limit));
-        if (startAfter) {
-            const startDoc = await db.collection('attendance').doc(startAfter).get();
-            if (startDoc.exists) query = query.startAfter(startDoc);
-        }
+        
         const snapshot = await query.get();
-        const attendance = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), timestamp: doc.data().timestamp?.toDate() }));
-        const lastDoc = snapshot.docs[snapshot.docs.length - 1];
+        let attendance = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), timestamp: doc.data().timestamp?.toDate?.() || new Date(doc.data().timestamp) }));
+        
+        // Sort in memory instead of relying on composite index
+        attendance.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        
+        // Apply limit after sort since we removed the Firestore orderBy/limit
+        attendance = attendance.slice(0, parseInt(limit));
+        
+        const lastDoc = attendance.length > 0 ? attendance[attendance.length - 1] : null;
         res.json({ attendance, pagination: { limit: parseInt(limit), nextCursor: lastDoc ? lastDoc.id : null, hasMore: attendance.length === parseInt(limit) } });
     } catch (error) {
         console.error('Get attendance history error:', error);

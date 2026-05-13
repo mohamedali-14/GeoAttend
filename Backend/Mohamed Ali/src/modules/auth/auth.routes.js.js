@@ -79,6 +79,7 @@ router.post("/login", async (req, res) => {
                         department: userData.department || "",
                         studentId: userData.studentId || "",
                         isActive: userData.isActive !== false,
+                        profilePicture: userData.profilePicture || undefined,
                     },
                 });
             }
@@ -123,6 +124,7 @@ router.post("/login", async (req, res) => {
                 department: userData.department || "",
                 studentId: userData.studentId || "",
                 isActive: userData.isActive !== false,
+                profilePicture: userData.profilePicture || undefined,
             },
         });
     } catch (err) {

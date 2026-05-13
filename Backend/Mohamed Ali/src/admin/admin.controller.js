@@ -4,7 +4,7 @@ async function getAllUsers(req, res) {
     try {
         const { role, limit = 20, startAfter } = req.query;
 
-        let query = db.collection("users").orderBy("createdAt", "desc");
+        let query = db.collection("users");
 
         if (role) {
             query = query.where("role", "==", role);
