@@ -12,7 +12,7 @@ function safe(path) {
   }
 }
 
-router.use("/auth",        safe("../modules/auth/auth.routes.js.js"));
+router.use("/auth", require("../modules/auth/auth.routes.js.js"));
 router.use("/users",       safe("../modules/users/users.routes.js"));
 router.use("/courses",     safe("../courses/course.routes.js"));
 router.use("/schedules",   safe("../schedules/schedule.routes.js"));
