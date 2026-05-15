@@ -5,14 +5,14 @@ const router  = express.Router();
 function safe(path) {
   try { return require(path); }
   catch (e) { 
-    console.warn("[routes] Could not load:", path, "-", e.message);
+    console.error("[routes] FAILED TO LOAD:", path, "-", e.message, e.stack);
     const r = express.Router();
-    r.all("*", (req, res) => res.status(501).json({ error: "Module not available: " + path }));
+    r.all("*", (req, res) => res.status(501).json({ error: "Module not available: " + path, details: e.message }));
     return r;
   }
 }
 
-router.use("/auth", require("../modules/auth/auth.routes.js.js"));
+router.use("/auth",        safe("../modules/auth/auth.routes.js.js"));
 router.use("/users",       safe("../modules/users/users.routes.js"));
 router.use("/courses",     safe("../courses/course.routes.js"));
 router.use("/schedules",   safe("../schedules/schedule.routes.js"));
