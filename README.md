@@ -48,3 +48,20 @@ GeoAttend is a comprehensive attendance management system that combines GPS trac
 ---
 
 ## 📁 Project Structure
+GeoAttend/
+├── Backend/
+│ └── Mohamed-Ali/
+│ ├── api/ # Vercel serverless functions
+│ ├── src/ # Main backend source code
+│ │ ├── app.js # Express app setup
+│ │ ├── routes.js # API route definitions
+│ │ ├── modules/ # Feature modules
+│ │ └── services/ # Business logic
+│ └── package.json
+├── Frontend/
+│ └── Ziad-desoky/
+│ ├── src/ # React frontend source
+│ ├── api/ # Backend integration
+│ ├── dist/ # Built frontend
+│ └── package.json
+└── MobileApp/ # Flutter mobile app
